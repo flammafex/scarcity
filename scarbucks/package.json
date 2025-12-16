@@ -1,7 +1,7 @@
 {
   "name": "scarbucks",
   "version": "1.0.0",
-  "description": "Cash That Bleeds - 90-second demo tokens for Scarcity",
+  "description": "Cash That Bleeds - Educational landing page for Scarcity",
   "type": "module",
   "main": "server/shorturl.js",
   "scripts": {

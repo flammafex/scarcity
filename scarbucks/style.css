@@ -643,3 +643,272 @@ textarea:focus {
   10%, 30%, 50%, 70%, 90% { transform: translateX(-5px); }
   20%, 40%, 60%, 80% { transform: translateX(5px); }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   LANDING PAGE STYLES
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Sections */
+.section {
+  margin: 40px 0;
+}
+
+.hero {
+  margin-bottom: 60px;
+}
+
+/* Content blocks */
+.content {
+  padding: 20px;
+}
+
+.content p {
+  margin-bottom: 15px;
+  line-height: 1.7;
+}
+
+.content ul {
+  list-style: none;
+  margin: 15px 0;
+}
+
+.content li {
+  padding: 8px 0;
+  padding-left: 20px;
+  position: relative;
+}
+
+.content li::before {
+  content: '>';
+  position: absolute;
+  left: 0;
+  color: var(--red-mid);
+}
+
+.highlight {
+  color: var(--red-hot);
+  text-shadow: var(--glow-sm);
+}
+
+.dim {
+  color: var(--red-dark);
+  font-size: 12px;
+}
+
+/* ASCII Diagram */
+.ascii-diagram {
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--red-mid);
+  overflow-x: auto;
+  margin: 20px 0;
+  padding: 10px;
+  background: var(--black-soft);
+  border: 1px solid var(--red-dark);
+}
+
+/* Decay Demo */
+.decay-demo {
+  margin: 30px 0;
+}
+
+.decay-visual {
+  max-width: 400px;
+  margin: 0 auto;
+}
+
+.decay-label {
+  text-align: center;
+  font-size: 11px;
+  color: var(--red-dark);
+  margin-top: 10px;
+  letter-spacing: 2px;
+}
+
+/* Three Pillars */
+.pillars {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 20px;
+  padding: 20px;
+}
+
+.pillar {
+  border: 1px solid var(--red-dark);
+  padding: 20px;
+  background: var(--black-soft);
+}
+
+.pillar-title {
+  font-size: 16px;
+  color: var(--red-hot);
+  text-shadow: var(--glow-md);
+  margin-bottom: 5px;
+  letter-spacing: 2px;
+}
+
+.pillar-subtitle {
+  font-size: 11px;
+  color: var(--red-mid);
+  margin-bottom: 15px;
+  letter-spacing: 1px;
+}
+
+.pillar ul {
+  list-style: none;
+  font-size: 12px;
+  margin-bottom: 15px;
+}
+
+.pillar li {
+  padding: 5px 0;
+  color: var(--red-bright);
+}
+
+.pillar li::before {
+  content: '·';
+  margin-right: 8px;
+  color: var(--red-dark);
+}
+
+.pillar-link {
+  display: block;
+  font-size: 10px;
+  color: var(--red-dark);
+  text-decoration: none;
+  word-break: break-all;
+}
+
+.pillar-link:hover {
+  color: var(--red-bright);
+  text-shadow: var(--glow-sm);
+}
+
+/* Feature Grid */
+.feature-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 15px;
+}
+
+.feature {
+  border: 1px solid var(--red-dark);
+  padding: 15px;
+  background: var(--black-soft);
+}
+
+.feature-name {
+  display: block;
+  font-size: 14px;
+  color: var(--red-hot);
+  text-shadow: var(--glow-sm);
+  margin-bottom: 5px;
+  letter-spacing: 2px;
+}
+
+.feature-desc {
+  display: block;
+  font-size: 11px;
+  color: var(--red-mid);
+}
+
+/* Code Block */
+.code-block {
+  background: var(--black-soft);
+  border: 1px solid var(--red-dark);
+  padding: 20px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--red-bright);
+  overflow-x: auto;
+}
+
+/* FAQ */
+.faq {
+  padding: 20px;
+}
+
+.faq-item {
+  margin-bottom: 20px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--red-darkest);
+}
+
+.faq-item:last-child {
+  border-bottom: none;
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+
+.faq-q {
+  font-size: 14px;
+  color: var(--red-hot);
+  margin-bottom: 8px;
+}
+
+.faq-q::before {
+  content: 'Q: ';
+  color: var(--red-mid);
+}
+
+.faq-a {
+  font-size: 13px;
+  color: var(--red-bright);
+  padding-left: 20px;
+}
+
+.faq-a::before {
+  content: 'A: ';
+  color: var(--red-dark);
+}
+
+/* Footer Links */
+.footer-links {
+  margin: 20px 0;
+}
+
+.footer-links a {
+  color: var(--red-mid);
+  text-decoration: none;
+  margin: 0 10px;
+}
+
+.footer-links a:hover {
+  color: var(--red-hot);
+  text-shadow: var(--glow-sm);
+}
+
+.footer-links .separator {
+  color: var(--red-dark);
+}
+
+.footer-copy {
+  font-size: 10px;
+  color: var(--red-dark);
+  margin-top: 10px;
+}
+
+/* Responsive adjustments for landing page */
+@media (max-width: 600px) {
+  .pillars {
+    grid-template-columns: 1fr;
+  }
+
+  .feature-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .ascii-diagram {
+    font-size: 9px;
+  }
+
+  .code-block {
+    font-size: 10px;
+    padding: 15px;
+  }
+
+  .ascii-border {
+    font-size: 8px;
+    overflow-x: auto;
+  }
+}

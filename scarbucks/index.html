@@ -3,245 +3,328 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="description" content="Scarbucks - Cash that bleeds. Zero-fee serverless cryptocurrency demo.">
+  <meta name="description" content="Scarcity - Zero-cost serverless cryptocurrency with lazy demurrage. Cash that bleeds.">
   <meta name="theme-color" content="#8B0000">
-  <title>SCARBUCKS - Cash That Bleeds</title>
+  <title>SCARCITY - Cash That Bleeds</title>
   <link rel="stylesheet" href="style.css">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🩸</text></svg>">
 </head>
 <body>
   <div class="container">
 
-    <!-- ═══════════════════════════════════════════════════════════════════
-         SCREEN: LANDING
-         ═══════════════════════════════════════════════════════════════════ -->
-    <div id="screen-landing" class="screen active">
+    <!-- HERO -->
+    <section class="hero">
       <pre class="ascii-border">
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║                                                                              ║
-</pre>
+║                                                                              ║</pre>
 
       <div class="logo-container">
-        <img src="../scarbucks.webp" alt="Scarbucks" class="logo">
+        <img src="../scarcity.webp" alt="Scarcity" class="logo">
       </div>
 
       <div class="tagline">CASH THAT BLEEDS</div>
-      <div class="subtitle">Zero-fee · Serverless · 90-second demo tokens</div>
+      <div class="subtitle">Zero-cost · Serverless · Privacy-preserving</div>
 
       <pre class="ascii-border">
 ║                                                                              ║
-╠══════════════════════════════════════════════════════════════════════════════╣
-</pre>
+╚══════════════════════════════════════════════════════════════════════════════╝</pre>
+    </section>
 
-      <div style="text-align: center; margin: 30px 0;">
-        <button class="btn btn-primary" id="btn-create">
-          [ CREATE A SCARBUCK ]
-        </button>
-      </div>
-
-      <pre class="ascii-border">
-║                                                                              ║
-╚══════════════════════════════════════════════════════════════════════════════╝
-</pre>
-
-      <div class="footer">
-        <pre class="ascii-token">
-    ╔═══════════════════════════════════════════════════════════════╗
-    ║  No gas fees. No mining. No blockchain. Just bleeding cash.   ║
-    ╚═══════════════════════════════════════════════════════════════╝
-        </pre>
-        <a href="https://github.com/flammafex/scarcity" target="_blank">github.com/flammafex/scarcity</a>
-      </div>
-    </div>
-
-    <!-- ═══════════════════════════════════════════════════════════════════
-         SCREEN: CREATING (Loading)
-         ═══════════════════════════════════════════════════════════════════ -->
-    <div id="screen-creating" class="screen">
+    <!-- WHAT IS IT -->
+    <section class="section">
       <pre class="ascii-border">
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║                         CREATING SCARBUCK...                                 ║
-╚══════════════════════════════════════════════════════════════════════════════╝
-</pre>
-      <div class="loading">
-        <div class="loading-spinner"></div>
-        <div class="loading-text">Generating keypair...</div>
-      </div>
-    </div>
+║  WHAT IS SCARCITY?                                                           ║
+╠══════════════════════════════════════════════════════════════════════════════╣</pre>
 
-    <!-- ═══════════════════════════════════════════════════════════════════
-         SCREEN: ACTIVE TOKEN
-         ═══════════════════════════════════════════════════════════════════ -->
-    <div id="screen-active" class="screen">
+      <div class="content">
+        <p>A cryptocurrency that refuses the usual sacrifices:</p>
+        <ul>
+          <li><span class="highlight">No blockchain</span> — gossip + threshold timestamps</li>
+          <li><span class="highlight">No gas fees</span> — zero-cost transfers</li>
+          <li><span class="highlight">No mining</span> — no proof-of-work waste</li>
+          <li><span class="highlight">No addresses</span> — sender/receiver unlinkable</li>
+          <li><span class="highlight">No servers</span> — P2P via WebRTC</li>
+        </ul>
+        <p class="dim">Double-spend prevention without global ledgers. Privacy without trusted mints.</p>
+      </div>
+
+      <pre class="ascii-border">
+╚══════════════════════════════════════════════════════════════════════════════╝</pre>
+    </section>
+
+    <!-- LAZY DEMURRAGE -->
+    <section class="section">
       <pre class="ascii-border">
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║                           YOUR SCARBUCK                                      ║
-╠══════════════════════════════════════════════════════════════════════════════╣
-</pre>
+║  LAZY DEMURRAGE: MONEY THAT METABOLIZES                                      ║
+╠══════════════════════════════════════════════════════════════════════════════╣</pre>
 
-      <div class="token-card">
-        <div class="token-id" id="token-id">TOKEN: ...</div>
-        <div class="token-status alive" id="token-status">ALIVE</div>
-      </div>
+      <div class="content">
+        <p>Tokens have a <span class="highlight">validity window</span> (~1.5 years). If not transferred before expiry, they die.</p>
 
-      <div class="timer-container">
-        <div class="timer" id="timer">90</div>
-        <div class="timer-label">SECONDS TO LIVE</div>
-      </div>
-
-      <div class="decay-bar-container">
-        <div class="decay-bar" id="decay-bar" style="width: 100%"></div>
-      </div>
-
-      <pre class="ascii-border">
-╠══════════════════════════════════════════════════════════════════════════════╣
-║                        SEND BEFORE IT BLEEDS OUT                             ║
-╚══════════════════════════════════════════════════════════════════════════════╝
-</pre>
-
-      <div class="send-modes">
-        <button class="btn active" id="btn-mode-qr">QR CODE</button>
-        <button class="btn" id="btn-mode-link">LINK</button>
-      </div>
-
-      <!-- QR Mode -->
-      <div id="send-qr" class="send-mode">
-        <div class="qr-container">
-          <div class="qr-code" id="qr-code"></div>
-        </div>
-        <div class="message">Scan with phone to receive this Scarbuck</div>
-      </div>
-
-      <!-- Link Mode -->
-      <div id="send-link" class="send-mode hidden">
-        <div class="link-container">
-          <div class="link-display">
-            <span class="link-url" id="share-url">scarbucks.com/t/...</span>
-            <button class="btn btn-copy" id="btn-copy">COPY</button>
+        <div class="decay-demo">
+          <div class="decay-visual">
+            <div class="decay-bar-container">
+              <div class="decay-bar" id="demo-decay" style="width: 100%"></div>
+            </div>
+            <div class="decay-label">TOKEN LIFESPAN</div>
           </div>
         </div>
-        <div class="message">Send this link before it dies</div>
+
+        <p>This isn't a bug. It's the point:</p>
+        <ul>
+          <li><span class="highlight">Anti-hoarding</span> — use it or lose it</li>
+          <li><span class="highlight">Self-pruning</span> — lost keys don't haunt the network forever</li>
+          <li><span class="highlight">High velocity</span> — money that circulates</li>
+        </ul>
+        <p class="dim">Based on Silvio Gesell's "Freigeld" and the Wörgl experiment (1932).</p>
       </div>
 
-      <div style="text-align: center; margin-top: 30px;">
-        <button class="btn" id="btn-cancel">DESTROY THIS ONE</button>
-      </div>
-    </div>
+      <pre class="ascii-border">
+╚══════════════════════════════════════════════════════════════════════════════╝</pre>
+    </section>
 
-    <!-- ═══════════════════════════════════════════════════════════════════
-         SCREEN: RECEIVE
-         ═══════════════════════════════════════════════════════════════════ -->
-    <div id="screen-receive" class="screen">
+    <!-- HOW IT WORKS -->
+    <section class="section">
       <pre class="ascii-border">
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║                        INCOMING SCARBUCK                                     ║
-╚══════════════════════════════════════════════════════════════════════════════╝
-</pre>
+║  HOW IT WORKS                                                                ║
+╠══════════════════════════════════════════════════════════════════════════════╣</pre>
 
-      <div class="loading" id="receive-loading">
-        <div class="loading-spinner"></div>
-        <div class="loading-text">Claiming token...</div>
+      <div class="content">
+        <pre class="ascii-diagram">
+┌─────────────────────────────────────────────────────────────────┐
+│  TRANSFER FLOW                                                  │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  1. Generate NULLIFIER (unique spend marker)                    │
+│     └─ SHA-256(secret || tokenId)                               │
+│                                                                 │
+│  2. Blind recipient via FREEBIRD (P-256 VOPRF)                  │
+│     └─ Issuer signs without learning identity                   │
+│                                                                 │
+│  3. Create OWNERSHIP PROOF (Schnorr signature)                  │
+│     └─ Proves right to spend, bound to nullifier                │
+│                                                                 │
+│  4. Timestamp via WITNESS (threshold signatures)                │
+│     └─ BLS12-381 aggregated, 3-of-5 federation                  │
+│                                                                 │
+│  5. Broadcast nullifier via GOSSIP (P2P epidemic)               │
+│     └─ Fast propagation, eventual consistency                   │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+        </pre>
+
+        <p>Double-spend detection:</p>
+        <ul>
+          <li><span class="highlight">Fast path</span> — check gossip network (~50ms)</li>
+          <li><span class="highlight">Witness path</span> — query federation (deterministic)</li>
+          <li><span class="highlight">Confidence scoring</span> — tunable risk tolerance</li>
+        </ul>
       </div>
 
-      <div id="receive-result" class="hidden">
-        <!-- Filled dynamically -->
-      </div>
-    </div>
+      <pre class="ascii-border">
+╚══════════════════════════════════════════════════════════════════════════════╝</pre>
+    </section>
 
-    <!-- ═══════════════════════════════════════════════════════════════════
-         SCREEN: DEATH
-         ═══════════════════════════════════════════════════════════════════ -->
-    <div id="screen-death" class="screen">
+    <!-- THREE PILLARS -->
+    <section class="section">
       <pre class="ascii-border">
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║                                                                              ║
-</pre>
+║  THE THREE PILLARS                                                           ║
+╠══════════════════════════════════════════════════════════════════════════════╣</pre>
 
-      <div class="death-text" style="text-align: center; margin: 60px 0;">
-        <pre>
-    ╔═══════════════════════════════════════╗
-    ║                                       ║
-    ║     THIS SCARBUCK HAS BLED OUT        ║
-    ║                                       ║
-    ║              IT'S GONE                ║
-    ║                                       ║
-    ╚═══════════════════════════════════════╝
+      <div class="pillars">
+        <div class="pillar">
+          <div class="pillar-title">FREEBIRD</div>
+          <div class="pillar-subtitle">Anonymous Authorization</div>
+          <ul>
+            <li>P-256 VOPRF (RFC 9497)</li>
+            <li>DLEQ proof verification</li>
+            <li>Schnorr ownership proofs</li>
+            <li>Sybil resistance (PoW/invite/rate-limit)</li>
+          </ul>
+          <a href="https://github.com/flammafex/freebird" class="pillar-link">github.com/flammafex/freebird</a>
+        </div>
+
+        <div class="pillar">
+          <div class="pillar-title">WITNESS</div>
+          <div class="pillar-subtitle">Threshold Timestamping</div>
+          <ul>
+            <li>BLS12-381 aggregated signatures</li>
+            <li>Multi-gateway quorum voting</li>
+            <li>Local signature verification</li>
+            <li>Anti-censorship design</li>
+          </ul>
+          <a href="https://github.com/flammafex/witness" class="pillar-link">github.com/flammafex/witness</a>
+        </div>
+
+        <div class="pillar">
+          <div class="pillar-title">HYPERTOKEN</div>
+          <div class="pillar-subtitle">P2P Networking</div>
+          <ul>
+            <li>WebSocket relay + WebRTC upgrade</li>
+            <li>Gossip-based nullifier propagation</li>
+            <li>Peer reputation scoring</li>
+            <li>NAT traversal via TURN</li>
+          </ul>
+          <a href="https://github.com/flammafex/hypertoken" class="pillar-link">github.com/flammafex/hypertoken</a>
+        </div>
+      </div>
+
+      <pre class="ascii-border">
+╚══════════════════════════════════════════════════════════════════════════════╝</pre>
+    </section>
+
+    <!-- ADVANCED FEATURES -->
+    <section class="section">
+      <pre class="ascii-border">
+╔══════════════════════════════════════════════════════════════════════════════╗
+║  ADVANCED OPERATIONS                                                         ║
+╠══════════════════════════════════════════════════════════════════════════════╣</pre>
+
+      <div class="content">
+        <div class="feature-grid">
+          <div class="feature">
+            <span class="feature-name">SPLIT</span>
+            <span class="feature-desc">Divide token into multiple smaller tokens</span>
+          </div>
+          <div class="feature">
+            <span class="feature-name">MERGE</span>
+            <span class="feature-desc">Combine multiple tokens into one</span>
+          </div>
+          <div class="feature">
+            <span class="feature-name">HTLC</span>
+            <span class="feature-desc">Hash/time-locked conditional payments</span>
+          </div>
+          <div class="feature">
+            <span class="feature-name">BRIDGE</span>
+            <span class="feature-desc">Cross-federation token transfer</span>
+          </div>
+          <div class="feature">
+            <span class="feature-name">MULTI-PARTY</span>
+            <span class="feature-desc">Atomic transfer to multiple recipients</span>
+          </div>
+          <div class="feature">
+            <span class="feature-name">TOR</span>
+            <span class="feature-desc">Native .onion service support</span>
+          </div>
+        </div>
+      </div>
+
+      <pre class="ascii-border">
+╚══════════════════════════════════════════════════════════════════════════════╝</pre>
+    </section>
+
+    <!-- RUN YOUR OWN -->
+    <section class="section">
+      <pre class="ascii-border">
+╔══════════════════════════════════════════════════════════════════════════════╗
+║  RUN YOUR OWN                                                                ║
+╠══════════════════════════════════════════════════════════════════════════════╣</pre>
+
+      <div class="content">
+        <pre class="code-block">
+# Clone and build
+git clone https://github.com/flammafex/scarcity.git
+cd scarcity
+
+# Docker: run everything (recommended)
+docker compose up --build
+
+# Or manually:
+npm install
+npm run build
+npm test
+
+# Start web wallet
+npm run web        # http://localhost:3000
+
+# Start explorer
+npm run explorer   # http://localhost:3001
+
+# CLI operations
+scar wallet create alice
+scar token mint alice 100
+scar token list alice
         </pre>
       </div>
 
       <pre class="ascii-border">
-║                                                                              ║
-╚══════════════════════════════════════════════════════════════════════════════╝
-</pre>
+╚══════════════════════════════════════════════════════════════════════════════╝</pre>
+    </section>
 
-      <div style="text-align: center; margin-top: 30px;">
-        <button class="btn btn-primary" id="btn-create-another">
-          [ CREATE ANOTHER? ]
-        </button>
-      </div>
-    </div>
-
-    <!-- ═══════════════════════════════════════════════════════════════════
-         SCREEN: EXPIRED (for receive page when token is dead)
-         ═══════════════════════════════════════════════════════════════════ -->
-    <div id="screen-expired" class="screen">
+    <!-- FAQ -->
+    <section class="section">
       <pre class="ascii-border">
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║                                                                              ║
-</pre>
+║  FAQ                                                                         ║
+╠══════════════════════════════════════════════════════════════════════════════╣</pre>
 
-      <div class="death-text" style="text-align: center; margin: 60px 0;">
-        <pre>
-    ╔═══════════════════════════════════════╗
-    ║                                       ║
-    ║       TOO SLOW. IT BLED OUT.          ║
-    ║                                       ║
-    ║     This token expired before you     ║
-    ║          could claim it.              ║
-    ║                                       ║
-    ╚═══════════════════════════════════════╝
-        </pre>
+      <div class="content faq">
+        <div class="faq-item">
+          <div class="faq-q">Is this a blockchain?</div>
+          <div class="faq-a">No. No global ledger, no mining, no consensus. Just gossip + timestamps.</div>
+        </div>
+        <div class="faq-item">
+          <div class="faq-q">How do you prevent double-spending?</div>
+          <div class="faq-a">Nullifiers broadcast P2P. If seen twice, reject. Witness provides ground truth for disputes.</div>
+        </div>
+        <div class="faq-item">
+          <div class="faq-q">Is this Chaumian e-cash?</div>
+          <div class="faq-a">Similar, but serverless. Freebird provides blinding, Witness replaces the bank.</div>
+        </div>
+        <div class="faq-item">
+          <div class="faq-q">Why do tokens expire?</div>
+          <div class="faq-a">Lazy demurrage. Lost keys don't create permanent dead weight. Money circulates.</div>
+        </div>
+        <div class="faq-item">
+          <div class="faq-q">Is this production-ready?</div>
+          <div class="faq-a">Research prototype. Core crypto is real (VOPRF, BLS, Schnorr). Needs security audits.</div>
+        </div>
       </div>
 
       <pre class="ascii-border">
-║                                                                              ║
-╚══════════════════════════════════════════════════════════════════════════════╝
-</pre>
+╚══════════════════════════════════════════════════════════════════════════════╝</pre>
+    </section>
 
-      <div style="text-align: center; margin-top: 30px;">
-        <button class="btn btn-primary" id="btn-create-new">
-          [ CREATE YOUR OWN ]
-        </button>
+    <!-- FOOTER -->
+    <footer class="footer">
+      <pre class="ascii-token">
+╔═══════════════════════════════════════════════════════════════════════════════╗
+║  No gas fees. No mining. No blockchain. Just bleeding cash.                   ║
+╚═══════════════════════════════════════════════════════════════════════════════╝
+      </pre>
+      <div class="footer-links">
+        <a href="https://github.com/flammafex/scarcity">GitHub</a>
+        <span class="separator">·</span>
+        <a href="https://carpocratian.org">Carpocratian Church</a>
       </div>
-    </div>
-
-    <!-- ═══════════════════════════════════════════════════════════════════
-         SCREEN: ERROR
-         ═══════════════════════════════════════════════════════════════════ -->
-    <div id="screen-error" class="screen">
-      <pre class="ascii-border">
-╔══════════════════════════════════════════════════════════════════════════════╗
-║                              ERROR                                           ║
-╚══════════════════════════════════════════════════════════════════════════════╝
-</pre>
-
-      <div class="message error" id="error-message">
-        Something went wrong.
-      </div>
-
-      <div style="text-align: center; margin-top: 30px;">
-        <button class="btn" id="btn-back-home">
-          [ BACK TO START ]
-        </button>
-      </div>
-    </div>
+      <div class="footer-copy">Apache 2.0 License</div>
+    </footer>
 
   </div>
 
-  <!-- Libraries -->
-  <script src="lib/qr.js"></script>
-  <script src="lib/wallet.js"></script>
-  <script src="lib/scarcity.js"></script>
-  <script src="app.js"></script>
+  <script>
+    // Animate the decay demo bar
+    const decayBar = document.getElementById('demo-decay');
+    let width = 100;
+    let direction = -1;
+
+    setInterval(() => {
+      width += direction * 0.5;
+      if (width <= 10) direction = 1;
+      if (width >= 100) direction = -1;
+
+      decayBar.style.width = width + '%';
+
+      if (width < 20) {
+        decayBar.classList.add('critical');
+      } else {
+        decayBar.classList.remove('critical');
+      }
+    }, 100);
+  </script>
 </body>
 </html>
