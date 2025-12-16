@@ -5,16 +5,17 @@
  */
 
 const ScarbucksClient = (() => {
-  // Configuration
-  const CONFIG = {
+  // Configuration - can be overridden via window.SCARBUCKS_CONFIG
+  const DEFAULT_CONFIG = {
     // Demo mode: 90-second token validity
     TOKEN_VALIDITY_MS: 90000,
 
-    // Infrastructure endpoints
-    FREEBIRD_ISSUER: 'https://issuer.metacan.org',
-    FREEBIRD_VERIFIER: 'https://verifier.metacan.org',
-    WITNESS_URL: 'https://witness1.metacan.org',
-    RELAY_URL: 'wss://relay.metacan.org',
+    // Infrastructure endpoints (optional - demo works without them)
+    // Set these via window.SCARBUCKS_CONFIG if you have infrastructure running
+    FREEBIRD_ISSUER: null,
+    FREEBIRD_VERIFIER: null,
+    WITNESS_URL: null,
+    RELAY_URL: null,
 
     // Short URL service (local for demo)
     SHORT_URL_API: '/api/transfer',
@@ -22,6 +23,11 @@ const ScarbucksClient = (() => {
     // Base URL for sharing
     BASE_URL: typeof window !== 'undefined' ? window.location.origin : 'https://scarbucks.com'
   };
+
+  // Merge with any user-provided config
+  const CONFIG = typeof window !== 'undefined' && window.SCARBUCKS_CONFIG
+    ? { ...DEFAULT_CONFIG, ...window.SCARBUCKS_CONFIG }
+    : DEFAULT_CONFIG;
 
   /**
    * Create a new Scarbuck token
@@ -77,6 +83,11 @@ const ScarbucksClient = (() => {
    * @returns {Promise<Object|null>}
    */
   async function getFreebirdAuthorization(commitment) {
+    // Skip if no issuer configured (demo mode)
+    if (!CONFIG.FREEBIRD_ISSUER) {
+      return null;
+    }
+
     try {
       const response = await fetch(`${CONFIG.FREEBIRD_ISSUER}/issue`, {
         method: 'POST',
