@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Scarbucks - Cash that bleeds. Zero-fee serverless cryptocurrency demo.">
+  <meta name="theme-color" content="#8B0000">
+  <title>SCARBUCKS - Cash That Bleeds</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🩸</text></svg>">
+</head>
+<body>
+  <div class="container">
+
+    <!-- ═══════════════════════════════════════════════════════════════════
+         SCREEN: LANDING
+         ═══════════════════════════════════════════════════════════════════ -->
+    <div id="screen-landing" class="screen active">
+      <pre class="ascii-border">
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                                                                              ║
+</pre>
+
+      <div class="logo-container">
+        <img src="../scarbucks.webp" alt="Scarbucks" class="logo">
+      </div>
+
+      <div class="tagline">CASH THAT BLEEDS</div>
+      <div class="subtitle">Zero-fee · Serverless · 90-second demo tokens</div>
+
+      <pre class="ascii-border">
+║                                                                              ║
+╠══════════════════════════════════════════════════════════════════════════════╣
+</pre>
+
+      <div style="text-align: center; margin: 30px 0;">
+        <button class="btn btn-primary" id="btn-create">
+          [ CREATE A SCARBUCK ]
+        </button>
+      </div>
+
+      <pre class="ascii-border">
+║                                                                              ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+</pre>
+
+      <div class="footer">
+        <pre class="ascii-token">
+    ╔═══════════════════════════════════════════════════════════════╗
+    ║  No gas fees. No mining. No blockchain. Just bleeding cash.   ║
+    ╚═══════════════════════════════════════════════════════════════╝
+        </pre>
+        <a href="https://github.com/flammafex/scarcity" target="_blank">github.com/flammafex/scarcity</a>
+      </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════════════
+         SCREEN: CREATING (Loading)
+         ═══════════════════════════════════════════════════════════════════ -->
+    <div id="screen-creating" class="screen">
+      <pre class="ascii-border">
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                         CREATING SCARBUCK...                                 ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+</pre>
+      <div class="loading">
+        <div class="loading-spinner"></div>
+        <div class="loading-text">Generating keypair...</div>
+      </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════════════
+         SCREEN: ACTIVE TOKEN
+         ═══════════════════════════════════════════════════════════════════ -->
+    <div id="screen-active" class="screen">
+      <pre class="ascii-border">
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                           YOUR SCARBUCK                                      ║
+╠══════════════════════════════════════════════════════════════════════════════╣
+</pre>
+
+      <div class="token-card">
+        <div class="token-id" id="token-id">TOKEN: ...</div>
+        <div class="token-status alive" id="token-status">ALIVE</div>
+      </div>
+
+      <div class="timer-container">
+        <div class="timer" id="timer">90</div>
+        <div class="timer-label">SECONDS TO LIVE</div>
+      </div>
+
+      <div class="decay-bar-container">
+        <div class="decay-bar" id="decay-bar" style="width: 100%"></div>
+      </div>
+
+      <pre class="ascii-border">
+╠══════════════════════════════════════════════════════════════════════════════╣
+║                        SEND BEFORE IT BLEEDS OUT                             ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+</pre>
+
+      <div class="send-modes">
+        <button class="btn active" id="btn-mode-qr">QR CODE</button>
+        <button class="btn" id="btn-mode-link">LINK</button>
+      </div>
+
+      <!-- QR Mode -->
+      <div id="send-qr" class="send-mode">
+        <div class="qr-container">
+          <div class="qr-code" id="qr-code"></div>
+        </div>
+        <div class="message">Scan with phone to receive this Scarbuck</div>
+      </div>
+
+      <!-- Link Mode -->
+      <div id="send-link" class="send-mode hidden">
+        <div class="link-container">
+          <div class="link-display">
+            <span class="link-url" id="share-url">scarbucks.com/t/...</span>
+            <button class="btn btn-copy" id="btn-copy">COPY</button>
+          </div>
+        </div>
+        <div class="message">Send this link before it dies</div>
+      </div>
+
+      <div style="text-align: center; margin-top: 30px;">
+        <button class="btn" id="btn-cancel">DESTROY THIS ONE</button>
+      </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════════════
+         SCREEN: RECEIVE
+         ═══════════════════════════════════════════════════════════════════ -->
+    <div id="screen-receive" class="screen">
+      <pre class="ascii-border">
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                        INCOMING SCARBUCK                                     ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+</pre>
+
+      <div class="loading" id="receive-loading">
+        <div class="loading-spinner"></div>
+        <div class="loading-text">Claiming token...</div>
+      </div>
+
+      <div id="receive-result" class="hidden">
+        <!-- Filled dynamically -->
+      </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════════════
+         SCREEN: DEATH
+         ═══════════════════════════════════════════════════════════════════ -->
+    <div id="screen-death" class="screen">
+      <pre class="ascii-border">
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                                                                              ║
+</pre>
+
+      <div class="death-text" style="text-align: center; margin: 60px 0;">
+        <pre>
+    ╔═══════════════════════════════════════╗
+    ║                                       ║
+    ║     THIS SCARBUCK HAS BLED OUT        ║
+    ║                                       ║
+    ║              IT'S GONE                ║
+    ║                                       ║
+    ╚═══════════════════════════════════════╝
+        </pre>
+      </div>
+
+      <pre class="ascii-border">
+║                                                                              ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+</pre>
+
+      <div style="text-align: center; margin-top: 30px;">
+        <button class="btn btn-primary" id="btn-create-another">
+          [ CREATE ANOTHER? ]
+        </button>
+      </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════════════
+         SCREEN: EXPIRED (for receive page when token is dead)
+         ═══════════════════════════════════════════════════════════════════ -->
+    <div id="screen-expired" class="screen">
+      <pre class="ascii-border">
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                                                                              ║
+</pre>
+
+      <div class="death-text" style="text-align: center; margin: 60px 0;">
+        <pre>
+    ╔═══════════════════════════════════════╗
+    ║                                       ║
+    ║       TOO SLOW. IT BLED OUT.          ║
+    ║                                       ║
+    ║     This token expired before you     ║
+    ║          could claim it.              ║
+    ║                                       ║
+    ╚═══════════════════════════════════════╝
+        </pre>
+      </div>
+
+      <pre class="ascii-border">
+║                                                                              ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+</pre>
+
+      <div style="text-align: center; margin-top: 30px;">
+        <button class="btn btn-primary" id="btn-create-new">
+          [ CREATE YOUR OWN ]
+        </button>
+      </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════════════
+         SCREEN: ERROR
+         ═══════════════════════════════════════════════════════════════════ -->
+    <div id="screen-error" class="screen">
+      <pre class="ascii-border">
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                              ERROR                                           ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+</pre>
+
+      <div class="message error" id="error-message">
+        Something went wrong.
+      </div>
+
+      <div style="text-align: center; margin-top: 30px;">
+        <button class="btn" id="btn-back-home">
+          [ BACK TO START ]
+        </button>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Libraries -->
+  <script src="lib/qr.js"></script>
+  <script src="lib/wallet.js"></script>
+  <script src="lib/scarcity.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

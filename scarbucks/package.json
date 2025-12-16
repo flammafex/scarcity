@@ -1,0 +1,22 @@
+{
+  "name": "scarbucks",
+  "version": "1.0.0",
+  "description": "Cash That Bleeds - 90-second demo tokens for Scarcity",
+  "type": "module",
+  "main": "server/shorturl.js",
+  "scripts": {
+    "start": "node server/shorturl.js",
+    "dev": "node --watch server/shorturl.js"
+  },
+  "keywords": [
+    "scarcity",
+    "cryptocurrency",
+    "demo",
+    "demurrage"
+  ],
+  "author": "Carpocratian Church",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2"
+  }
+}
