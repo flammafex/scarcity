@@ -707,6 +707,55 @@ textarea:focus {
   border: 1px solid var(--red-dark);
 }
 
+/* Mermaid Flowchart Container */
+.mermaid-container {
+  margin: 30px 0;
+  padding: 20px;
+  background: var(--black);
+  border: 1px solid var(--red-dark);
+  overflow-x: auto;
+}
+
+.mermaid-container .mermaid {
+  display: flex;
+  justify-content: center;
+}
+
+.mermaid-container .mermaid svg {
+  max-width: 100%;
+  filter: drop-shadow(0 0 10px var(--red-dark));
+}
+
+/* Mermaid node styling overrides */
+.mermaid .node rect,
+.mermaid .node polygon {
+  fill: var(--red-darkest) !important;
+  stroke: var(--red-mid) !important;
+  stroke-width: 2px !important;
+}
+
+.mermaid .node .label {
+  color: var(--red-bright) !important;
+}
+
+.mermaid .edgePath path {
+  stroke: var(--red-bright) !important;
+  stroke-width: 2px !important;
+}
+
+.mermaid .edgePath marker path {
+  fill: var(--red-bright) !important;
+}
+
+.mermaid .cluster rect {
+  fill: var(--black-soft) !important;
+  stroke: var(--red-dark) !important;
+}
+
+.mermaid .cluster-label .nodeLabel {
+  color: var(--red-mid) !important;
+}
+
 /* Decay Demo */
 .decay-demo {
   margin: 30px 0;

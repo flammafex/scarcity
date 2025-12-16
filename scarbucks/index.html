@@ -8,6 +8,46 @@
   <title>SCARCITY - Cash That Bleeds</title>
   <link rel="stylesheet" href="style.css">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🩸</text></svg>">
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <script>
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: 'base',
+      themeVariables: {
+        primaryColor: '#1a0000',
+        primaryTextColor: '#ff0000',
+        primaryBorderColor: '#8B0000',
+        lineColor: '#cc0000',
+        secondaryColor: '#0a0000',
+        tertiaryColor: '#000000',
+        background: '#000000',
+        mainBkg: '#1a0000',
+        nodeBorder: '#8B0000',
+        clusterBkg: '#0a0000',
+        clusterBorder: '#4a0000',
+        titleColor: '#ff0000',
+        edgeLabelBackground: '#000000',
+        nodeTextColor: '#ff0000',
+        actorTextColor: '#ff0000',
+        actorLineColor: '#8B0000',
+        signalColor: '#cc0000',
+        signalTextColor: '#ff0000',
+        labelTextColor: '#cc0000',
+        loopTextColor: '#cc0000',
+        noteBorderColor: '#8B0000',
+        noteBkgColor: '#1a0000',
+        noteTextColor: '#cc0000',
+        fontFamily: 'IBM Plex Mono, monospace'
+      },
+      flowchart: {
+        curve: 'basis',
+        padding: 20,
+        nodeSpacing: 50,
+        rankSpacing: 60,
+        htmlLabels: true
+      }
+    });
+  </script>
 </head>
 <body>
   <div class="container">
@@ -93,28 +133,30 @@
 ╠══════════════════════════════════════════════════════════════════════════════╣</pre>
 
       <div class="content">
-        <pre class="ascii-diagram">
-┌─────────────────────────────────────────────────────────────────┐
-│  TRANSFER FLOW                                                  │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                 │
-│  1. Generate NULLIFIER (unique spend marker)                    │
-│     └─ SHA-256(secret || tokenId)                               │
-│                                                                 │
-│  2. Blind recipient via FREEBIRD (P-256 VOPRF)                  │
-│     └─ Issuer signs without learning identity                   │
-│                                                                 │
-│  3. Create OWNERSHIP PROOF (Schnorr signature)                  │
-│     └─ Proves right to spend, bound to nullifier                │
-│                                                                 │
-│  4. Timestamp via WITNESS (threshold signatures)                │
-│     └─ BLS12-381 aggregated, 3-of-5 federation                  │
-│                                                                 │
-│  5. Broadcast nullifier via GOSSIP (P2P epidemic)               │
-│     └─ Fast propagation, eventual consistency                   │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
-        </pre>
+        <div class="mermaid-container">
+          <pre class="mermaid">
+flowchart TD
+    A[/"<b>TOKEN</b><br/>secret + tokenId"/]
+    A --> B["<b>1. NULLIFIER</b><br/>SHA-256(secret || tokenId)"]
+    B --> C["<b>2. FREEBIRD</b><br/>P-256 VOPRF blinding"]
+    C --> D["<b>3. OWNERSHIP PROOF</b><br/>Schnorr signature"]
+    D --> E["<b>4. WITNESS</b><br/>BLS12-381 threshold sig"]
+    E --> F["<b>5. GOSSIP</b><br/>P2P nullifier broadcast"]
+    F --> G[/"<b>TRANSFER COMPLETE</b><br/>Recipient can spend"/]
+
+    subgraph FREEBIRD ["FREEBIRD"]
+        C
+    end
+
+    subgraph WITNESS ["WITNESS FEDERATION"]
+        E
+    end
+
+    subgraph P2P ["GOSSIP NETWORK"]
+        F
+    end
+          </pre>
+        </div>
 
         <p>Double-spend detection:</p>
         <ul>
