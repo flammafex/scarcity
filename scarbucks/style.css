@@ -756,6 +756,128 @@ textarea:focus {
   color: var(--red-mid) !important;
 }
 
+/* Transfer Flow Infograph - Two Column Layout */
+.transfer-infograph {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 30px;
+  align-items: start;
+  margin: 20px 0;
+}
+
+.infograph-flow {
+  position: sticky;
+  top: 20px;
+}
+
+.infograph-flow .mermaid-container {
+  margin: 0;
+  padding: 15px;
+  min-width: 120px;
+}
+
+.infograph-definitions {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.step-def {
+  display: flex;
+  gap: 15px;
+  padding: 15px;
+  border: 1px solid var(--red-dark);
+  background: var(--black-soft);
+  transition: all 0.2s ease;
+}
+
+.step-def:hover {
+  border-color: var(--red-mid);
+  box-shadow: 0 0 15px rgba(139, 0, 0, 0.3);
+}
+
+.step-num {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--red-hot);
+  text-shadow: var(--glow-md);
+  min-width: 35px;
+  text-align: center;
+  line-height: 1;
+}
+
+.step-content {
+  flex: 1;
+}
+
+.step-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--red-hot);
+  text-shadow: var(--glow-sm);
+  letter-spacing: 2px;
+  margin-bottom: 4px;
+}
+
+.step-formula {
+  font-size: 11px;
+  color: var(--red-mid);
+  font-family: var(--font-mono);
+  margin-bottom: 8px;
+  letter-spacing: 1px;
+}
+
+.step-desc {
+  font-size: 12px;
+  color: var(--red-bright);
+  line-height: 1.6;
+}
+
+/* Detection Summary */
+.detection-summary {
+  margin-top: 30px;
+  padding: 15px 20px;
+  border: 1px solid var(--red-dark);
+  background: var(--black-soft);
+  text-align: center;
+}
+
+.detection-title {
+  font-size: 12px;
+  color: var(--red-mid);
+  letter-spacing: 3px;
+  margin-bottom: 10px;
+}
+
+.detection-paths {
+  font-size: 12px;
+  color: var(--red-bright);
+  line-height: 1.8;
+}
+
+/* Responsive: stack on mobile */
+@media (max-width: 700px) {
+  .transfer-infograph {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+
+  .infograph-flow {
+    position: static;
+    display: flex;
+    justify-content: center;
+  }
+
+  .step-def {
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .step-num {
+    font-size: 20px;
+  }
+}
+
 /* Decay Demo */
 .decay-demo {
   margin: 30px 0;

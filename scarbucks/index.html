@@ -133,37 +133,78 @@
 ╠══════════════════════════════════════════════════════════════════════════════╣</pre>
 
       <div class="content">
-        <div class="mermaid-container">
-          <pre class="mermaid">
+        <div class="transfer-infograph">
+          <div class="infograph-flow">
+            <div class="mermaid-container">
+              <pre class="mermaid">
 flowchart TD
-    A[/"<b>TOKEN</b><br/>secret + tokenId"/]
-    A --> B["<b>1. NULLIFIER</b><br/>SHA-256(secret || tokenId)"]
-    B --> C["<b>2. FREEBIRD</b><br/>P-256 VOPRF blinding"]
-    C --> D["<b>3. OWNERSHIP PROOF</b><br/>Schnorr signature"]
-    D --> E["<b>4. WITNESS</b><br/>BLS12-381 threshold sig"]
-    E --> F["<b>5. GOSSIP</b><br/>P2P nullifier broadcast"]
-    F --> G[/"<b>TRANSFER COMPLETE</b><br/>Recipient can spend"/]
+    A[/"<b>TOKEN</b>"/]
+    A --> B["<b>1</b>"]
+    B --> C["<b>2</b>"]
+    C --> D["<b>3</b>"]
+    D --> E["<b>4</b>"]
+    E --> F["<b>5</b>"]
+    F --> G[/"<b>DONE</b>"/]
+              </pre>
+            </div>
+          </div>
 
-    subgraph FREEBIRD ["FREEBIRD"]
-        C
-    end
+          <div class="infograph-definitions">
+            <div class="step-def" data-step="1">
+              <div class="step-num">1</div>
+              <div class="step-content">
+                <div class="step-title">NULLIFIER</div>
+                <div class="step-formula">SHA-256(secret || tokenId)</div>
+                <div class="step-desc">A unique "spend marker" derived from your token's secret. Publishing it proves you spent the token without revealing which token you hold. Same token = same nullifier = caught double-spend.</div>
+              </div>
+            </div>
 
-    subgraph WITNESS ["WITNESS FEDERATION"]
-        E
-    end
+            <div class="step-def" data-step="2">
+              <div class="step-num">2</div>
+              <div class="step-content">
+                <div class="step-title">VOPRF BLINDING</div>
+                <div class="step-formula">Freebird · P-256 · RFC 9497</div>
+                <div class="step-desc">Verifiable Oblivious Pseudo-Random Function. The issuer signs your blinded request without learning what they signed. You unblind to get a valid signature. They authorized you but can't trace you.</div>
+              </div>
+            </div>
 
-    subgraph P2P ["GOSSIP NETWORK"]
-        F
-    end
-          </pre>
+            <div class="step-def" data-step="3">
+              <div class="step-num">3</div>
+              <div class="step-content">
+                <div class="step-title">OWNERSHIP PROOF</div>
+                <div class="step-formula">Schnorr signature · DLEQ</div>
+                <div class="step-desc">A zero-knowledge proof binding your nullifier to the transfer. Proves you know the token's secret without revealing it. Cryptographically commits you to this specific transaction.</div>
+              </div>
+            </div>
+
+            <div class="step-def" data-step="4">
+              <div class="step-num">4</div>
+              <div class="step-content">
+                <div class="step-title">WITNESS TIMESTAMP</div>
+                <div class="step-formula">BLS12-381 · threshold 3-of-5</div>
+                <div class="step-desc">A federation of independent witnesses. Each signs your nullifier+timestamp. Aggregate 3 signatures into 1 compact proof. Establishes canonical ordering without a blockchain.</div>
+              </div>
+            </div>
+
+            <div class="step-def" data-step="5">
+              <div class="step-num">5</div>
+              <div class="step-content">
+                <div class="step-title">GOSSIP BROADCAST</div>
+                <div class="step-formula">P2P · epidemic protocol</div>
+                <div class="step-desc">Your nullifier propagates through the network like a rumor. Peers cache seen nullifiers. Second appearance = double-spend attempt. Fast detection (~50ms) with eventual consistency.</div>
+              </div>
+            </div>
+          </div>
         </div>
 
-        <p>Double-spend detection:</p>
-        <ul>
-          <li><span class="highlight">Fast path</span> — check gossip network (~50ms)</li>
-          <li><span class="highlight">Witness path</span> — query federation (deterministic)</li>
-          <li><span class="highlight">Confidence scoring</span> — tunable risk tolerance</li>
-        </ul>
+        <div class="detection-summary">
+          <div class="detection-title">DOUBLE-SPEND DETECTION</div>
+          <div class="detection-paths">
+            <span class="highlight">Fast path</span> gossip network (~50ms) ·
+            <span class="highlight">Witness path</span> federation query (deterministic) ·
+            <span class="highlight">Confidence scoring</span> tunable risk tolerance
+          </div>
+        </div>
       </div>
 
       <pre class="ascii-border">
