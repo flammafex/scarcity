@@ -5,7 +5,7 @@
 ## Quick Start (Docker)
 
 ```bash
-git clone https://github.com/flammafex/scarcity.git
+git clone https://git.carpocratian.org/sibyl/scarcity.git
 cd scarcity
 docker compose up --build --abort-on-container-exit
 ```
@@ -27,9 +27,9 @@ Scarcity combines three infrastructure components:
 
 | Component | Purpose | Link |
 |-----------|---------|------|
-| **Freebird** | Anonymous token issuance via P-256 VOPRF with Sybil resistance | [github.com/flammafex/freebird](https://github.com/flammafex/freebird) |
-| **Witness** | Threshold timestamping (Ed25519/BLS12-381) | [github.com/flammafex/witness](https://github.com/flammafex/witness) |
-| **HyperToken** | P2P networking with WebSocket/WebRTC | [github.com/flammafex/hypertoken](https://github.com/flammafex/hypertoken) |
+| **Freebird** | Anonymous token issuance via P-256 VOPRF with Sybil resistance | [git.carpocratian.org/sibyl/freebird](https://git.carpocratian.org/sibyl/freebird) |
+| **Witness** | Threshold timestamping (Ed25519/BLS12-381) | [git.carpocratian.org/sibyl/witness](https://git.carpocratian.org/sibyl/witness) |
+| **HyperToken** | P2P networking with WebSocket/WebRTC | [git.carpocratian.org/sibyl/hypertoken](https://git.carpocratian.org/sibyl/hypertoken) |
 
 ```
 ┌─────────────────────────────────────────────────────┐
@@ -82,7 +82,7 @@ No global ledger required. Nullifiers are single-use markers that prove a token 
 ### Local Development
 
 ```bash
-git clone https://github.com/flammafex/scarcity.git
+git clone https://git.carpocratian.org/sibyl/scarcity.git
 cd scarcity
 npm install
 npm run build
@@ -341,6 +341,6 @@ Apache License 2.0
 
 ## Related Projects
 
-- [Freebird](https://github.com/flammafex/freebird) - Anonymous authorization
-- [HyperToken](https://github.com/flammafex/hypertoken) - P2P networking
-- [Witness](https://github.com/flammafex/witness) - Threshold timestamping
+- [Freebird](https://git.carpocratian.org/sibyl/freebird) - Anonymous authorization
+- [HyperToken](https://git.carpocratian.org/sibyl/hypertoken) - P2P networking
+- [Witness](https://git.carpocratian.org/sibyl/witness) - Threshold timestamping
