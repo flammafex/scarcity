@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nullscape Explorer</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+    <img src="nullscape.webp" width=128 height=128>
+      <h1>Nullscape Explorer</h1>
+      <p class="subtitle">Real-time nullifier feed and network transparency</p>
+      <div class="status">
+        <span id="status-indicator" class="status-dot"></span>
+        <span id="status-text">Not collecting</span>
+      </div>
+    </header>
+
+    <!-- Network Stats -->
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-label">Total Nullifiers</div>
+        <div class="stat-value" id="stat-total">0</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Last 24 Hours</div>
+        <div class="stat-value" id="stat-24h">0</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Last Hour</div>
+        <div class="stat-value" id="stat-hour">0</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Federations</div>
+        <div class="stat-value" id="stat-federations">0</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Avg Peers</div>
+        <div class="stat-value" id="stat-peers">0</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Avg Witness Depth</div>
+        <div class="stat-value" id="stat-depth">0</div>
+      </div>
+    </div>
+
+    <!-- Control Panel -->
+    <div class="section">
+      <div class="control-panel">
+        <div>
+          <input type="text" id="federation-input" placeholder="Federation name (optional)" class="input">
+        </div>
+        <div class="button-group">
+          <button id="start-btn" class="btn btn-primary">Start Collecting</button>
+          <button id="stop-btn" class="btn btn-secondary" disabled>Stop Collecting</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Search -->
+    <div class="section">
+      <div class="search-bar">
+        <input type="text" id="search-input" placeholder="Search nullifiers by hex..." class="input">
+        <button id="search-btn" class="btn btn-primary">Search</button>
+      </div>
+    </div>
+
+    <!-- Tabs -->
+    <nav class="tabs">
+      <button class="tab-btn active" data-tab="feed">Live Feed</button>
+      <button class="tab-btn" data-tab="activity">Activity</button>
+      <button class="tab-btn" data-tab="federations">Federations</button>
+    </nav>
+
+    <!-- Live Feed Tab -->
+    <div id="feed-tab" class="tab-content active">
+      <div class="section">
+        <div class="section-header">
+          <h2>Nullifier Feed</h2>
+          <div>
+            <span id="live-indicator" class="live-dot"></span>
+            <span id="live-text">Offline</span>
+          </div>
+        </div>
+
+        <div id="nullifier-feed" class="nullifier-feed">
+          <div class="empty-state">
+            <p>No nullifiers yet. Click "Start Collecting" to begin.</p>
+          </div>
+        </div>
+
+        <div class="pagination">
+          <button id="prev-btn" class="btn btn-small" disabled>← Previous</button>
+          <span id="page-info">Page 1</span>
+          <button id="next-btn" class="btn btn-small">Next →</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Activity Tab -->
+    <div id="activity-tab" class="tab-content">
+      <div class="section">
+        <h2>Network Activity (Last 24 Hours)</h2>
+        <canvas id="activity-chart" width="800" height="300"></canvas>
+      </div>
+    </div>
+
+    <!-- Federations Tab -->
+    <div id="federations-tab" class="tab-content">
+      <div class="section">
+        <h2>Federation Statistics</h2>
+        <div id="federation-stats" class="federation-list"></div>
+      </div>
+    </div>
+
+    <!-- Nullifier Detail Modal -->
+    <div id="modal" class="modal" style="display: none;">
+      <div class="modal-content">
+        <span class="close">&times;</span>
+        <h2>Nullifier Details</h2>
+        <div id="modal-body"></div>
+      </div>
+    </div>
+
+    <div id="loading" class="loading" style="display: none;">
+      <div class="spinner"></div>
+      <p id="loading-text">Processing...</p>
+    </div>
+
+    <div id="error-toast" class="toast error" style="display: none;"></div>
+    <div id="success-toast" class="toast success" style="display: none;"></div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

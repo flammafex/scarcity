@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#2563eb">
+  <meta name="description" content="Privacy-preserving P2P value transfer">
+  <title>Scarcity Web Wallet</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="manifest" href="/manifest.json">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔨</text></svg>">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>🔨 Scarcity Web Wallet</h1>
+      <p class="subtitle">Privacy-preserving P2P value transfer</p>
+      <div class="status">
+        <span id="status-indicator" class="status-dot"></span>
+        <span id="status-text">Not initialized</span>
+        <button id="privacy-info-btn" class="btn-icon" title="How privacy works">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"></circle>
+            <path d="M12 16v-4M12 8h.01"></path>
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <div id="init-section" class="section">
+      <h2>Initialize Wallet</h2>
+      <p>Click to connect to the Scarcity network</p>
+      <button id="init-btn" class="btn btn-primary">Initialize Network</button>
+    </div>
+
+    <div id="main-app" style="display: none;">
+      <nav class="tabs">
+        <button class="tab-btn active" data-tab="wallets">Wallets</button>
+        <button class="tab-btn" data-tab="tokens">Tokens</button>
+        <button class="tab-btn" data-tab="send">Send</button>
+        <button class="tab-btn" data-tab="receive">Receive</button>
+        <button class="tab-btn" data-tab="operations">Operations</button>
+      </nav>
+
+      <!-- Wallets Tab -->
+      <div id="wallets-tab" class="tab-content active">
+        <div class="section">
+          <div class="section-header">
+            <h2>Your Wallets</h2>
+            <button id="create-wallet-btn" class="btn btn-small">+ New Wallet</button>
+          </div>
+
+          <div id="wallet-list" class="wallet-list"></div>
+
+          <div id="create-wallet-form" class="form-card" style="display: none;">
+            <h3>Create New Wallet</h3>
+            <input type="text" id="new-wallet-name" placeholder="Wallet name" class="input">
+            <label class="checkbox-label">
+              <input type="checkbox" id="set-default" checked>
+              Set as default wallet
+            </label>
+            <div class="form-actions">
+              <button id="create-wallet-submit" class="btn btn-primary">Create</button>
+              <button id="create-wallet-cancel" class="btn btn-secondary">Cancel</button>
+            </div>
+          </div>
+
+          <div id="import-wallet-form" class="form-card" style="display: none;">
+            <h3>Import Wallet</h3>
+            <input type="text" id="import-wallet-name" placeholder="Wallet name" class="input">
+            <input type="text" id="import-secret-key" placeholder="Secret key (hex)" class="input">
+            <div class="form-actions">
+              <button id="import-wallet-submit" class="btn btn-primary">Import</button>
+              <button id="import-wallet-cancel" class="btn btn-secondary">Cancel</button>
+            </div>
+          </div>
+
+          <button id="import-wallet-btn" class="btn btn-small" style="margin-top: 1rem;">Import Wallet</button>
+        </div>
+      </div>
+
+      <!-- Tokens Tab -->
+      <div id="tokens-tab" class="tab-content">
+        <div class="section">
+          <div id="expiry-banner" class="expiry-banner" style="display: none;"></div>
+
+          <div class="section-header">
+            <h2>Tokens</h2>
+            <div>
+              <select id="token-wallet-filter" class="select">
+                <option value="">All wallets</option>
+              </select>
+              <button id="mint-token-btn" class="btn btn-small">Mint Token</button>
+            </div>
+          </div>
+
+          <div id="balance-display" class="balance-card">
+            <div class="balance-label">Total Balance</div>
+            <div class="balance-amount" id="total-balance">0</div>
+            <div class="balance-tokens" id="token-count">0 tokens</div>
+          </div>
+
+          <div id="token-list" class="token-list"></div>
+
+          <div id="mint-form" class="form-card" style="display: none;">
+            <h3>Mint New Token</h3>
+            <select id="mint-wallet" class="select">
+              <option value="">Select wallet</option>
+            </select>
+            <input type="number" id="mint-amount" placeholder="Amount" class="input" min="1">
+            <div class="form-actions">
+              <button id="mint-submit" class="btn btn-primary">Mint Token</button>
+              <button id="mint-cancel" class="btn btn-secondary">Cancel</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Send Tab -->
+      <div id="send-tab" class="tab-content">
+        <div class="section">
+          <h2>Send Token</h2>
+          <div class="form-card">
+            <select id="send-token" class="select">
+              <option value="">Select token to send</option>
+            </select>
+            <input type="text" id="send-recipient" placeholder="Recipient public key (hex)" class="input">
+            <div class="form-actions">
+              <button id="send-submit" class="btn btn-primary">Send Token</button>
+            </div>
+          </div>
+          <div id="send-result" class="result-card" style="display: none;"></div>
+        </div>
+      </div>
+
+      <!-- Receive Tab -->
+      <div id="receive-tab" class="tab-content">
+        <div class="section">
+          <h2>Receive Token</h2>
+          <div class="form-card">
+            <select id="receive-wallet" class="select">
+              <option value="">Select receiving wallet</option>
+            </select>
+            <textarea id="receive-transfer" placeholder="Paste transfer data (JSON)" class="textarea" rows="8"></textarea>
+            <div class="form-actions">
+              <button id="receive-submit" class="btn btn-primary">Receive Token</button>
+            </div>
+          </div>
+          <div id="receive-result" class="result-card" style="display: none;"></div>
+        </div>
+      </div>
+
+      <!-- Operations Tab -->
+      <div id="operations-tab" class="tab-content">
+        <div class="section">
+          <h2>Token Operations</h2>
+
+          <div class="form-card">
+            <h3>Split Token</h3>
+            <select id="split-token" class="select">
+              <option value="">Select token to split</option>
+            </select>
+            <input type="text" id="split-amounts" placeholder="Amounts (comma-separated, e.g., 10,20,30)" class="input">
+            <div class="form-actions">
+              <button id="split-submit" class="btn btn-primary">Split Token</button>
+            </div>
+            <div id="split-result" class="result-card" style="display: none;"></div>
+          </div>
+
+          <div class="form-card">
+            <h3>Merge Tokens</h3>
+            <div id="merge-token-checkboxes" class="checkbox-list"></div>
+            <div class="form-actions">
+              <button id="merge-submit" class="btn btn-primary">Merge Selected Tokens</button>
+            </div>
+            <div id="merge-result" class="result-card" style="display: none;"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="loading" class="loading" style="display: none;">
+      <div class="spinner"></div>
+      <p id="loading-text">Processing...</p>
+      <div id="loading-steps" class="loading-steps" style="display: none;"></div>
+    </div>
+
+    <div id="error-toast" class="toast error" style="display: none;"></div>
+    <div id="success-toast" class="toast success" style="display: none;"></div>
+
+    <!-- PIN Modal -->
+    <div id="pin-modal" class="modal" style="display: none;">
+      <div class="modal-content pin-modal-content">
+        <div class="modal-header">
+          <h3 id="pin-modal-title">Enter PIN</h3>
+          <p id="pin-modal-subtitle" class="modal-subtitle">Enter your PIN to access wallet secrets.</p>
+        </div>
+        <div class="modal-body">
+          <div class="pin-input-group">
+            <label for="pin-input">PIN</label>
+            <input type="password" id="pin-input" class="input pin-input" maxlength="8" inputmode="numeric" pattern="[0-9]*" placeholder="Enter PIN" autocomplete="off">
+          </div>
+          <div id="pin-confirm-group" class="pin-input-group" style="display: none;">
+            <label for="pin-confirm">Confirm PIN</label>
+            <input type="password" id="pin-confirm" class="input pin-input" maxlength="8" inputmode="numeric" pattern="[0-9]*" placeholder="Confirm PIN" autocomplete="off">
+          </div>
+          <p id="pin-error" class="pin-error" style="display: none;"></p>
+        </div>
+        <div class="modal-footer">
+          <button id="pin-cancel" class="btn btn-secondary">Cancel</button>
+          <button id="pin-submit" class="btn btn-primary">Verify</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Secret Key Modal -->
+    <div id="secret-modal" class="modal" style="display: none;">
+      <div class="modal-content secret-modal-content">
+        <div class="modal-header">
+          <h3>Wallet Secret Key</h3>
+          <p class="modal-subtitle">Wallet: <strong id="secret-wallet-name"></strong></p>
+        </div>
+        <div class="modal-body">
+          <div class="secret-warning">
+            <strong>Keep this secret!</strong> Anyone with this key can spend your tokens.
+            This key will auto-hide in 60 seconds.
+          </div>
+          <div class="secret-display-container">
+            <code id="secret-display" class="secret-display"></code>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button id="secret-copy" class="btn btn-primary">Copy to Clipboard</button>
+          <button id="secret-close" class="btn btn-secondary">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Privacy Explainer Modal -->
+    <div id="privacy-modal" class="modal" style="display: none;">
+      <div class="modal-content privacy-modal-content">
+        <div class="modal-header">
+          <h3>How Scarcity Protects Your Privacy</h3>
+          <p class="modal-subtitle">Understanding what's protected and what's not</p>
+        </div>
+        <div class="modal-body privacy-body">
+          <section class="privacy-section">
+            <h4 class="privacy-section-title protected">What We Don't Know</h4>
+            <ul class="privacy-list">
+              <li><strong>Your identity</strong> — No accounts, no registration</li>
+              <li><strong>Sender/receiver link</strong> — Transfers are cryptographically blinded</li>
+              <li><strong>Transaction amounts</strong> — Only you and the recipient know</li>
+              <li><strong>Wallet addresses</strong> — Tokens are bearer instruments like cash</li>
+              <li><strong>Transaction history</strong> — No on-chain record of who paid whom</li>
+            </ul>
+          </section>
+
+          <section class="privacy-section">
+            <h4 class="privacy-section-title local">What Stays Local</h4>
+            <ul class="privacy-list">
+              <li><strong>Secret keys</strong> — Stored on your device only</li>
+              <li><strong>Token balances</strong> — Computed locally from your tokens</li>
+              <li><strong>Wallet names</strong> — Never sent to any server</li>
+              <li><strong>PIN hash</strong> — Stored in browser, never transmitted</li>
+            </ul>
+          </section>
+
+          <section class="privacy-section">
+            <h4 class="privacy-section-title caution">What Could Leak</h4>
+            <ul class="privacy-list">
+              <li><strong>IP address</strong> — Visible to network peers (use Tor for anonymity)</li>
+              <li><strong>Timing patterns</strong> — When you transact is observable</li>
+              <li><strong>Network metadata</strong> — Which peers you connect to</li>
+              <li><strong>Amount ranges</strong> — If same tokens sent repeatedly</li>
+            </ul>
+          </section>
+
+          <section class="privacy-section">
+            <h4 class="privacy-section-title info">How It Works</h4>
+            <div class="privacy-tech">
+              <div class="tech-item">
+                <strong>Freebird</strong>
+                <span>Blinds transfers so the issuer can't link sender to receiver</span>
+              </div>
+              <div class="tech-item">
+                <strong>Witness</strong>
+                <span>Timestamps transactions without seeing their contents</span>
+              </div>
+              <div class="tech-item">
+                <strong>Gossip</strong>
+                <span>Broadcasts spent markers to prevent double-spending</span>
+              </div>
+              <div class="tech-item">
+                <strong>E2E Encryption</strong>
+                <span>All peer communication encrypted (ECDH + AES-256-GCM)</span>
+              </div>
+            </div>
+          </section>
+        </div>
+        <div class="modal-footer">
+          <button id="privacy-close" class="btn btn-primary">Got it</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

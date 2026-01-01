@@ -1,0 +1,578 @@
+/* GLOBAL RESET & FONTS */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  /* Switched to Verdana for that authentic 90s/early 2000s feel */
+  font-family: Verdana, Geneva, Tahoma, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.6;
+}
+
+/* LIGHT MODE: "The Workstation" 
+   Based on Windows 95/98 styling and default browser link colors.
+*/
+:root {
+  /* UI Colors */
+  --bg: #c0c0c0;           /* Classic UI Grey */
+  --card: #ffffff;         /* White document background */
+  --border: #808080;       /* Dark grey for bevels/borders */
+  
+  /* Text */
+  --text: #000000;         /* Pure black */
+  --text-light: #505050;   /* Dark grey text */
+
+  /* Identity Colors */
+  --primary: #0000aa;      /* "Hyperlink Blue" (Dark) */
+  --primary-hover: #0000ff;/* Bright Blue */
+  
+  /* Status Colors (High Contrast) */
+  --success: #008000;      /* Standard Green */
+  --danger: #cc0000;       /* Standard Red */
+  --warning: #ffcc00;      /* Traffic Yellow */
+
+  /* Retro Shadows (Hard edges, no blur) */
+  --shadow: 4px 4px 0px 0px rgba(0, 0, 0, 0.2);
+  --shadow-lg: 6px 6px 0px 0px rgba(0, 0, 0, 0.4);
+  
+  /* Gradient colors for H1 */
+  --grad-start: #000080;   /* Navy */
+  --grad-end: #008080;     /* Netscape Teal */
+}
+
+/* DARK MODE: "The Deep Web" 
+   Based on "View Source" high-contrast editors and the Netscape "Starry Night" aesthetic.
+*/
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #000000;           /* Pure Black */
+    --card: #1a1a1a;         /* Deep Grey */
+    --border: #404040;       /* Mid Grey */
+
+    --text: #e0e0e0;         /* Light Grey */
+    --text-light: #a0a0a0;   
+    
+    /* Neon accents */
+    --primary: #00ffff;      /* Cyan/Aqua */
+    --primary-hover: #ffffff;
+    
+    --success: #00ff00;      /* Terminal Green */
+    --danger: #ff3333;       
+    --warning: #ffff00;
+    
+    --shadow: 4px 4px 0px 0px #333333;
+    --shadow-lg: 6px 6px 0px 0px #00ffff; /* Cyberpunk glow bevel */
+    
+    --grad-start: #00ffff;
+    --grad-end: #008080;
+  }
+}
+
+/* --- STRUCTURE (Unchanged logic, updated visuals) --- */
+
+.container {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 2rem;
+}
+
+header {
+  text-align: center;
+  margin-bottom: 3rem;
+  padding-bottom: 2rem;
+  border-bottom: 2px solid var(--border);
+  /* Added a distinct bevel look */
+  border-top: 2px solid white; 
+}
+
+h1 {
+  font-size: 2.5rem;
+  margin-bottom: 0.5rem;
+  /* Updated gradient to use variables */
+  background: linear-gradient(135deg, var(--grad-start), var(--grad-end));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  /* Fallback for retro feel if gradient fails */
+  color: var(--primary);
+  text-shadow: 2px 2px 0px rgba(0,0,0,0.1);
+}
+
+img {
+	margin: 1rem 0 0 0;
+}
+
+h2 {
+  font-size: 1.5rem;
+  margin-bottom: 1rem;
+  border-bottom: 1px dashed var(--border); /* Dashed lines are very 90s */
+  padding-bottom: 0.5rem;
+}
+
+.subtitle {
+  color: var(--text-light);
+  font-size: 1.1rem;
+  font-family: 'Courier New', Courier, monospace; /* Tech vibe */
+}
+
+.status {
+  margin-top: 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.status-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 0; /* Square dots for retro feel */
+  background: var(--text-light);
+  border: 1px solid black;
+}
+
+.status-dot.online {
+  background: var(--success);
+  animation: pulse 2s infinite;
+  box-shadow: 0 0 5px var(--success);
+}
+
+.live-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 0; /* Square dots */
+  background: var(--text-light);
+  display: inline-block;
+}
+
+.live-dot.active {
+  background: var(--danger);
+  animation: pulse 1s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+/* Stats Grid */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+  margin-bottom: 2rem;
+}
+
+.stat-card {
+  background: var(--card);
+  padding: 1.5rem;
+  /* Retro Bevel Borders */
+  border-left: 2px solid white;
+  border-top: 2px solid white;
+  border-right: 2px solid var(--border);
+  border-bottom: 2px solid var(--border);
+  border-radius: 0; /* No rounded corners */
+  text-align: center;
+  transition: all 0.1s;
+}
+
+.stat-card:hover {
+  background: var(--bg); /* Invert effect */
+  border-color: var(--primary);
+  box-shadow: var(--shadow);
+  transform: translateY(-2px);
+}
+
+.stat-label {
+  font-size: 0.875rem;
+  color: var(--text-light);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.5rem;
+  font-weight: bold;
+}
+
+.stat-value {
+  font-size: 2rem;
+  font-weight: 700;
+  color: var(--primary);
+  font-family: 'Courier New', Courier, monospace;
+}
+
+/* Section */
+.section {
+  background: var(--card);
+  border-radius: 0;
+  padding: 2rem;
+  margin-bottom: 2rem;
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+  /* Inset look */
+  outline: 1px solid transparent; 
+}
+
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+  background: var(--bg);
+  padding: 0.5rem;
+  border: 1px solid var(--border);
+}
+
+/* Control Panel */
+.control-panel {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.button-group {
+  display: flex;
+  gap: 0.5rem;
+}
+
+/* Search Bar */
+.search-bar {
+  display: flex;
+  gap: 0.5rem;
+}
+
+/* Buttons: The "Button Face" Look */
+.btn {
+  padding: 0.5rem 1.5rem;
+  border: 2px outset white; /* 3D Button effect */
+  border-radius: 0;
+  font-size: 1rem;
+  font-weight: bold;
+  cursor: pointer;
+  transition: all 0.1s;
+  background: #d4d0c8; /* Standard Windows Button Face */
+  color: black;
+}
+
+.btn:active {
+  border-style: inset;
+  transform: translateY(1px);
+}
+
+.btn-primary {
+  background: var(--primary);
+  color: white;
+  border: 2px outset var(--primary-hover);
+}
+
+@media (prefers-color-scheme: dark) {
+    .btn-primary {
+        color: black; /* Better contrast on neon buttons */
+    }
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--primary-hover);
+  box-shadow: var(--shadow);
+}
+
+.btn-secondary {
+  background: var(--bg);
+  color: var(--text);
+  border: 2px outset var(--border);
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: var(--border);
+  color: white;
+}
+
+.btn-small {
+  padding: 0.25rem 0.75rem;
+  font-size: 0.9rem;
+}
+
+.btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  border-style: solid;
+  color: var(--text-light);
+}
+
+/* Input: The "Inset" Look */
+.input {
+  flex: 1;
+  padding: 0.75rem;
+  border: 2px inset var(--border); /* Deep inset */
+  border-radius: 0;
+  font-size: 1rem;
+  background: #ffffff;
+  color: black;
+  font-family: 'Courier New', monospace;
+}
+
+.input:focus {
+  outline: none;
+  background: #ffffe0; /* Classic "form focus" pale yellow */
+  border-color: var(--primary);
+}
+
+/* Tabs */
+.tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 2rem;
+  border-bottom: 2px solid var(--primary);
+  padding-left: 4px;
+}
+
+.tab-btn {
+  padding: 0.5rem 1.5rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-bottom: none;
+  font-size: 1rem;
+  font-weight: 500;
+  color: var(--text-light);
+  cursor: pointer;
+  transition: all 0.2s;
+  margin-bottom: -2px; /* Connect to border */
+  border-radius: 4px 4px 0 0; /* Slight tab roundness */
+}
+
+.tab-btn:hover {
+  background: var(--card);
+  color: var(--primary);
+}
+
+.tab-btn.active {
+  background: var(--card);
+  color: var(--primary);
+  border: 2px solid var(--primary);
+  border-bottom: 2px solid var(--card); /* Hide bottom border to merge */
+  font-weight: bold;
+}
+
+.tab-content {
+  display: none;
+}
+
+.tab-content.active {
+  display: block;
+}
+
+/* Nullifier Feed */
+.nullifier-feed {
+  max-height: 600px;
+  overflow-y: auto;
+  border: 2px inset var(--border);
+  background: var(--bg);
+}
+
+.nullifier-item {
+  background: var(--card);
+  padding: 1rem;
+  border-bottom: 1px solid var(--border);
+  border-left: 4px solid var(--primary);
+  margin-bottom: 0; /* Items touch */
+  cursor: pointer;
+  transition: all 0.1s;
+}
+
+.nullifier-item:hover {
+  background: var(--primary);
+  color: white; /* Highlight effect */
+}
+
+.nullifier-item:hover .nullifier-hex,
+.nullifier-item:hover .nullifier-meta {
+    color: white;
+}
+
+.nullifier-item.new {
+  animation: slideIn 0.5s ease-out;
+  border-left-color: var(--success);
+}
+
+@keyframes slideIn {
+  from { opacity: 0; transform: translateY(-20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.nullifier-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.nullifier-hex {
+  font-family: 'Courier New', monospace;
+  font-size: 0.9rem;
+  color: var(--primary);
+  font-weight: bold;
+}
+
+.nullifier-badge {
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--primary); /* Outlined badge */
+  border-radius: 0;
+  font-size: 0.75rem;
+  font-weight: 600;
+  background: transparent;
+  color: var(--text);
+  text-transform: uppercase;
+}
+
+.nullifier-meta {
+  display: flex;
+  gap: 1rem;
+  font-size: 0.875rem;
+  color: var(--text-light);
+}
+
+/* Empty State */
+.empty-state {
+  text-align: center;
+  padding: 3rem;
+  color: var(--text-light);
+  border: 2px dashed var(--border);
+  margin: 1rem;
+}
+
+/* Federation List */
+.federation-list {
+  display: grid;
+  gap: 1rem;
+}
+
+.federation-item {
+  background: var(--card);
+  padding: 1.5rem;
+  border: 1px solid var(--border);
+  border-left: 6px solid var(--primary);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  box-shadow: var(--shadow);
+}
+
+.federation-name {
+  font-size: 1.25rem;
+  font-weight: 600;
+  font-family: 'Courier New', monospace;
+}
+
+.federation-stats {
+  display: flex;
+  gap: 2rem;
+  font-size: 0.875rem;
+  color: var(--text-light);
+}
+
+/* Chart */
+canvas {
+  max-width: 100%;
+  height: auto;
+  background: var(--card);
+  border: 2px inset var(--border);
+  padding: 1rem;
+}
+
+/* Modal */
+.modal {
+  position: fixed;
+  z-index: 1000;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  overflow: auto;
+  background-color: rgba(0, 0, 0, 0.6);
+  backdrop-filter: grayscale(100%); /* Retro effect */
+}
+
+.modal-content {
+  background-color: var(--card);
+  margin: 5% auto;
+  padding: 2rem;
+  border: 2px outset white;
+  width: 80%;
+  max-width: 800px;
+  box-shadow: 10px 10px 0px 0px rgba(0,0,0,0.5);
+}
+
+.close {
+  color: var(--text);
+  float: right;
+  font-size: 28px;
+  font-weight: bold;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  padding: 0 5px;
+  background: var(--bg);
+}
+
+.close:hover {
+  background: var(--danger);
+  color: white;
+}
+
+.detail-row {
+  padding: 0.75rem 0;
+  border-bottom: 1px dotted var(--border);
+}
+
+.detail-value {
+  font-family: 'Courier New', monospace;
+  color: var(--primary);
+}
+
+/* Loading */
+.loading {
+  background: var(--bg);
+}
+
+.spinner {
+  width: 50px;
+  height: 50px;
+  border: 4px solid var(--border);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+/* Toasts */
+.toast {
+  position: fixed;
+  top: 2rem;
+  right: 2rem;
+  padding: 1rem 1.5rem;
+  border: 2px outset white;
+  color: white;
+  font-weight: 500;
+  box-shadow: var(--shadow-lg);
+  z-index: 1001;
+}
+
+.toast.error {
+  background: var(--danger);
+  color: white;
+}
+
+.toast.success {
+  background: var(--success);
+  color: white;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .container { padding: 1rem; }
+  h1 { font-size: 2rem; }
+  .stats-grid { grid-template-columns: repeat(2, 1fr); }
+  .control-panel { flex-direction: column; }
+  .search-bar { flex-direction: column; }
+}

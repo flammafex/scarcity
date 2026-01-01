@@ -1,0 +1,23 @@
+# Dependencies (will be installed fresh in the container)
+node_modules
+
+# Build artifacts
+dist
+coverage
+
+# Git metadata
+.git
+.gitignore
+
+# Environment variables (passed via docker-compose instead)
+.env
+
+# Logs and system files
+npm-debug.log
+yarn-error.log
+.DS_Store
+Thumbs.db
+
+# IDE settings
+.vscode
+.idea

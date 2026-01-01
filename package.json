@@ -1,0 +1,60 @@
+{
+  "name": "scarcity",
+  "version": "0.2.0",
+  "description": "Privacy-preserving P2P value transfer protocol with gossip-based double-spend prevention",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "scar": "./dist/src/cli/index.js"
+  },
+  "scripts": {
+    "clean": "rm -rf dist",
+    "build": "tsc && npm run copy-static",
+    "copy-static": "mkdir -p dist/src/web && mkdir -p dist/src/explorer && cp -r src/web/public dist/src/web/ 2>/dev/null || true && cp -r src/explorer/public dist/src/explorer/ 2>/dev/null || true",
+    "dev": "tsc --watch",
+    "web": "npm run build && node dist/src/web/server.js",
+    "web:dev": "tsc && npm run copy-static && node dist/src/web/server.js",
+    "explorer": "npm run build && node dist/src/explorer/server.js",
+    "explorer:dev": "tsc && npm run copy-static && node dist/src/explorer/server.js",
+    "test": "npm run test:integration",
+    "test:integration": "npm run build && node dist/test/run-integration-tests.js",
+    "test:basic": "npm run build && node dist/test/integration/01-basic-transfer.test.js",
+    "test:double-spend": "npm run build && node dist/test/integration/02-double-spend.test.js",
+    "test:degradation": "npm run build && node dist/test/integration/03-graceful-degradation.test.js",
+    "test:phase3": "npm run build && node dist/test/integration/04-phase3-features.test.js",
+    "lint": "eslint src/"
+  },
+  "keywords": [
+    "privacy",
+    "p2p",
+    "cryptocurrency",
+    "gossip",
+    "zero-knowledge",
+    "anonymous"
+  ],
+  "author": "The Carpocratian Church of Commonality and Equality",
+  "license": "Apache-2.0",
+  "dependencies": {
+    "@msgpack/msgpack": "^3.1.3",
+    "@noble/curves": "^1.9.7",
+    "@noble/hashes": "^1.4.0",
+    "@roamhq/wrtc": "^0.7.0",
+    "better-sqlite3": "^12.5.0",
+    "cors": "^2.8.5",
+    "express": "^5.2.1",
+    "pako": "^2.1.0",
+    "socks-proxy-agent": "^8.0.5",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/node": "^20.11.0",
+    "@types/pako": "^2.0.4",
+    "@types/ws": "^8.18.1",
+    "patch-package": "^8.0.0",
+    "typescript": "^5.9.3"
+  }
+}

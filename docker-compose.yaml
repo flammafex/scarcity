@@ -1,0 +1,234 @@
+services:
+  # ============================================================================
+  # SCARCITY TEST RUNNER
+  # ============================================================================
+  scarcity-tests:
+    build: .
+    depends_on:
+      freebird-issuer:
+        condition: service_started
+      freebird-verifier:
+        condition: service_started
+      witness-gateway:
+        condition: service_started
+      hypertoken-relay:
+        condition: service_started
+    environment:
+      - FREEBIRD_ISSUER_URL=http://freebird-issuer:8081
+      - FREEBIRD_VERIFIER_URL=http://freebird-verifier:8082
+      - WITNESS_GATEWAY_URL=http://witness-gateway:8080
+      - HYPERTOKEN_RELAY_URL=ws://hypertoken-relay:3000
+    # Wait for all services to be reachable before running tests
+    command: >
+      sh -c "
+        echo '⏳ Waiting for services...' &&
+        while ! nc -z freebird-issuer 8081; do sleep 1; done &&
+        while ! nc -z freebird-verifier 8082; do sleep 1; done &&
+        while ! nc -z witness-gateway 8080; do sleep 1; done &&
+        while ! nc -z hypertoken-relay 3000; do sleep 1; done &&
+        echo '✅ Services up! Running tests...' &&
+        npm test
+      "
+
+  # ============================================================================
+  # SCARCITY WEB SERVICES
+  # ============================================================================
+  scarcity-web-wallet:
+    build: .
+    ports:
+      - "3000:3000"
+    depends_on:
+      freebird-issuer:
+        condition: service_started
+      freebird-verifier:
+        condition: service_started
+      witness-gateway:
+        condition: service_started
+      hypertoken-relay:
+        condition: service_started
+    environment:
+      - PORT=3000
+      - FREEBIRD_ISSUER_URL=http://freebird-issuer:8081
+      - FREEBIRD_VERIFIER_URL=http://freebird-verifier:8082
+      - WITNESS_GATEWAY_URL=http://witness-gateway:8080
+      - HYPERTOKEN_RELAY_URL=ws://hypertoken-relay:3000
+    volumes:
+      - scarcity-data:/root/.scarcity
+    command: ["npm", "run", "web"]
+
+  scarcity-explorer:
+    build: .
+    ports:
+      - "3001:3001"
+    depends_on:
+      freebird-issuer:
+        condition: service_started
+      freebird-verifier:
+        condition: service_started
+      witness-gateway:
+        condition: service_started
+      hypertoken-relay:
+        condition: service_started
+    environment:
+      - PORT=3001
+      - FREEBIRD_ISSUER_URL=http://freebird-issuer:8081
+      - FREEBIRD_VERIFIER_URL=http://freebird-verifier:8082
+      - WITNESS_GATEWAY_URL=http://witness-gateway:8080
+      - HYPERTOKEN_RELAY_URL=ws://hypertoken-relay:3000
+    volumes:
+      - scarcity-data:/root/.scarcity
+    command: ["npm", "run", "explorer"]
+
+  # ============================================================================
+  # FREEBIRD CLUSTER
+  # ============================================================================
+  freebird-issuer:
+    image: ghcr.io/flammafex/freebird-issuer:latest
+    ports:
+      - "8081:8081"
+    environment:
+      - ISSUER_ID=issuer:docker:v1
+      - BIND_ADDR=0.0.0.0:8081
+      # Combined Sybil resistance: requires BOTH progressive trust AND proof of diversity
+      - SYBIL_RESISTANCE=combined
+      - SYBIL_COMBINED_MODE=and
+      - SYBIL_COMBINED_MECHANISMS=progressive_trust,proof_of_diversity
+      - ADMIN_API_KEY=dev-admin-key-must-be-at-least-32-characters-long
+      - ISSUER_SK_PATH=/tmp/issuer_sk.bin
+      - KEY_ROTATION_STATE_PATH=/tmp/key_state.json
+
+  freebird-verifier:
+    image: ghcr.io/flammafex/freebird-verifier:latest
+    ports:
+      - "8082:8082"
+    depends_on:
+      - freebird-redis
+    environment:
+      - BIND_ADDR=0.0.0.0:8082
+      - ISSUER_URL=http://freebird-issuer:8081/.well-known/issuer
+      - REDIS_URL=redis://freebird-redis:6379
+
+  freebird-redis:
+    image: redis:alpine
+
+  # ============================================================================
+  # WITNESS CLUSTER
+  # ============================================================================
+  witness-setup:
+    build:
+      context: https://github.com/flammafex/witness.git
+      target: witness-node
+    volumes:
+      - witness-config:/data
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        #if [ -f /data/network.json ]; then
+        #  echo "✅ Configuration already exists. Skipping setup."
+        #  exit 0
+        #fi
+
+        echo "🔧 Generating Witness Keys..."
+
+        # Generate witness-1
+        OUT1=$$(witness-node --generate-key)
+        PRIV1=$$(echo "$$OUT1" | grep "Private key:" | awk '{print $$3}')
+        PUB1=$$(echo "$$OUT1" | grep "Public key:" | awk '{print $$3}')
+        echo "{\"id\": \"witness-1\", \"private_key\": \"$$PRIV1\", \"port\": 4001, \"network_id\": \"docker-net\", \"max_clock_skew\": 300}" > /data/witness1.json
+
+        # Generate witness-2
+        OUT2=$$(witness-node --generate-key)
+        PRIV2=$$(echo "$$OUT2" | grep "Private key:" | awk '{print $$3}')
+        PUB2=$$(echo "$$OUT2" | grep "Public key:" | awk '{print $$3}')
+        echo "{\"id\": \"witness-2\", \"private_key\": \"$$PRIV2\", \"port\": 4002, \"network_id\": \"docker-net\", \"max_clock_skew\": 300}" > /data/witness2.json
+
+        # Generate witness-3
+        OUT3=$$(witness-node --generate-key)
+        PRIV3=$$(echo "$$OUT3" | grep "Private key:" | awk '{print $$3}')
+        PUB3=$$(echo "$$OUT3" | grep "Public key:" | awk '{print $$3}')
+        echo "{\"id\": \"witness-3\", \"private_key\": \"$$PRIV3\", \"port\": 4003, \"network_id\": \"docker-net\", \"max_clock_skew\": 300}" > /data/witness3.json
+
+        echo "📝 Creating network.json..."
+        cat > /data/network.json <<EOF
+        {
+          "id": "docker-net",
+          "threshold": 2,
+          "witnesses": [
+            { "id": "witness-1", "pubkey": "$$PUB1", "endpoint": "http://witness-1:4001" },
+            { "id": "witness-2", "pubkey": "$$PUB2", "endpoint": "http://witness-2:4002" },
+            { "id": "witness-3", "pubkey": "$$PUB3", "endpoint": "http://witness-3:4003" }
+          ],
+          "federation_peers": [],
+          "external_anchors": { "enabled": false, "providers": [] }
+        }
+        EOF
+
+        echo "✅ Setup complete."
+
+  witness-1:
+    build:
+      context: https://github.com/flammafex/witness.git
+      target: witness-node
+    depends_on:
+      witness-setup:
+        condition: service_completed_successfully
+    volumes:
+      - witness-config:/data
+    command: ["witness-node", "--config", "/data/witness1.json"]
+
+  witness-2:
+    build:
+      context: https://github.com/flammafex/witness.git
+      target: witness-node
+    depends_on:
+      witness-setup:
+        condition: service_completed_successfully
+    volumes:
+      - witness-config:/data
+    command: ["witness-node", "--config", "/data/witness2.json"]
+
+  witness-3:
+    build:
+      context: https://github.com/flammafex/witness.git
+      target: witness-node
+    depends_on:
+      witness-setup:
+        condition: service_completed_successfully
+    volumes:
+      - witness-config:/data
+    command: ["witness-node", "--config", "/data/witness3.json"]
+
+  witness-gateway:
+    build:
+      context: https://github.com/flammafex/witness.git
+      target: witness-gateway
+    ports:
+      - "8080:8080"
+    depends_on:
+      witness-setup:
+        condition: service_completed_successfully
+      witness-1:
+        condition: service_started
+      witness-2:
+        condition: service_started
+      witness-3:
+        condition: service_started
+    volumes:
+      - witness-config:/config
+    environment:
+      - RUST_LOG=info
+    command: ["witness-gateway", "--config", "/config/network.json", "--database", ":memory:"]
+
+  # ============================================================================
+  # HYPERTOKEN RELAY
+  # ============================================================================
+  hypertoken-relay:
+    build:
+      context: https://github.com/flammafex/hypertoken.git
+    command: ["node", "start-relay.js", "3000"]
+    ports:
+      - "3002:3000" # Moved to 3002 to avoid conflict with Web Wallet
+
+volumes:
+  witness-config:
+  scarcity-data: # Persistence for wallets and explorer DB
