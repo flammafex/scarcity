@@ -121,15 +121,16 @@ export class TokenCommand extends Command {
       );
 
       const metadata = token.getMetadata();
+      const persisted = token.getPersistentState();
 
       // Store token
       tokenStorage.addToken({
-        id: metadata.id,
-        amount: metadata.amount,
-        secretKey: Crypto.toHex((token as any).secret),
+        id: persisted.id,
+        amount: persisted.amount,
+        secretKey: Crypto.toHex(persisted.secret),
         wallet: wallet.name,
         created: Date.now(),
-        spent: false,
+        spent: persisted.spent,
         metadata: {
           type: 'minted'
         }
@@ -177,14 +178,17 @@ export class TokenCommand extends Command {
 
       // Recreate token
       const secret = Crypto.fromHex(storedToken.secretKey);
-      const token = new ScarbuckToken({
-        id: storedToken.id,
-        amount: storedToken.amount,
-        secret,
-        freebird: infra.freebird,
-        witness: infra.witness,
-        gossip: infra.gossip
-      });
+      const token = ScarbuckToken.fromPersistentState(
+        {
+          id: storedToken.id,
+          amount: storedToken.amount,
+          secret,
+          spent: storedToken.spent
+        },
+        infra.freebird,
+        infra.witness,
+        infra.gossip
+      );
 
       // Transfer
       console.log('Creating transfer package...');
@@ -265,15 +269,16 @@ export class TokenCommand extends Command {
       );
 
       const metadata = receivedToken.getMetadata();
+      const persisted = receivedToken.getPersistentState();
 
       // Store token
       tokenStorage.addToken({
-        id: metadata.id,
-        amount: metadata.amount,
-        secretKey: Crypto.toHex((receivedToken as any).secret),
+        id: persisted.id,
+        amount: persisted.amount,
+        secretKey: Crypto.toHex(persisted.secret),
         wallet: wallet.name,
         created: Date.now(),
-        spent: false,
+        spent: persisted.spent,
         metadata: {
           type: 'received'
         }
@@ -465,14 +470,17 @@ export class TokenCommand extends Command {
 
       // Recreate token
       const secret = Crypto.fromHex(storedToken.secretKey);
-      const token = new ScarbuckToken({
-        id: storedToken.id,
-        amount: storedToken.amount,
-        secret,
-        freebird: infra.freebird,
-        witness: infra.witness,
-        gossip: infra.gossip
-      });
+      const token = ScarbuckToken.fromPersistentState(
+        {
+          id: storedToken.id,
+          amount: storedToken.amount,
+          secret,
+          spent: storedToken.spent
+        },
+        infra.freebird,
+        infra.witness,
+        infra.gossip
+      );
 
       // Split
       console.log('Creating split package...');
@@ -549,14 +557,17 @@ export class TokenCommand extends Command {
       const infra = await infraManager.initialize();
 
       // Recreate tokens
-      const tokens = storedTokens.map(st => new ScarbuckToken({
-        id: st.id,
-        amount: st.amount,
-        secret: Crypto.fromHex(st.secretKey),
-        freebird: infra.freebird,
-        witness: infra.witness,
-        gossip: infra.gossip
-      }));
+      const tokens = storedTokens.map(st => ScarbuckToken.fromPersistentState(
+        {
+          id: st.id,
+          amount: st.amount,
+          secret: Crypto.fromHex(st.secretKey),
+          spent: st.spent
+        },
+        infra.freebird,
+        infra.witness,
+        infra.gossip
+      ));
 
       // Merge
       console.log('Creating merge package...');
@@ -638,14 +649,17 @@ export class TokenCommand extends Command {
 
       // Recreate token
       const secret = Crypto.fromHex(storedToken.secretKey);
-      const token = new ScarbuckToken({
-        id: storedToken.id,
-        amount: storedToken.amount,
-        secret,
-        freebird: infra.freebird,
-        witness: infra.witness,
-        gossip: infra.gossip
-      });
+      const token = ScarbuckToken.fromPersistentState(
+        {
+          id: storedToken.id,
+          amount: storedToken.amount,
+          secret,
+          spent: storedToken.spent
+        },
+        infra.freebird,
+        infra.witness,
+        infra.gossip
+      );
 
       // Multi-party transfer
       console.log('Creating multi-party package...');

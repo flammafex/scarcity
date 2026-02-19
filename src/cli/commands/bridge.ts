@@ -99,14 +99,17 @@ export class BridgeCommand extends Command {
       const targetGossip = new NullifierGossip({ witness: targetWitness });
 
       // Recreate token
-      const token = new ScarbuckToken({
-        id: storedToken.id,
-        amount: storedToken.amount,
-        secret: Crypto.fromHex(storedToken.secretKey),
-        freebird: sourceFreebird,
-        witness: sourceWitness,
-        gossip: sourceGossip
-      });
+      const token = ScarbuckToken.fromPersistentState(
+        {
+          id: storedToken.id,
+          amount: storedToken.amount,
+          secret: Crypto.fromHex(storedToken.secretKey),
+          spent: storedToken.spent
+        },
+        sourceFreebird,
+        sourceWitness,
+        sourceGossip
+      );
 
       // Create bridge
       const bridge = new FederationBridge({
@@ -254,13 +257,14 @@ export class BridgeCommand extends Command {
 
       // Store received token
       const metadata = token.getMetadata();
+      const persisted = token.getPersistentState();
       storage.addToken({
-        id: metadata.id,
-        amount: metadata.amount,
-        secretKey: Crypto.toHex((token as any).secret),
+        id: persisted.id,
+        amount: persisted.amount,
+        secretKey: Crypto.toHex(persisted.secret),
         wallet: wallet as string,
         created: Date.now(),
-        spent: false,
+        spent: persisted.spent,
         metadata: {
           type: 'received',
           source: 'bridge',

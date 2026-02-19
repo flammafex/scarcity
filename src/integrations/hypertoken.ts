@@ -185,6 +185,8 @@ export class HyperTokenAdapter {
   private peerDiscoveryHandler?: (peer: PeerConnection) => void;
   private stateDeltaHandler?: (delta: StateDelta) => void;
   private config: HyperTokenAdapterConfig;
+  private loggedFallbackNetworkWarning = false;
+  private downgradedPeers = new Set<string>();
 
   constructor(config: HyperTokenAdapterConfig = {}) {
     this.config = config;
@@ -287,8 +289,17 @@ export class HyperTokenAdapter {
     });
 
     this.routedManager.on('net:error', (evt: any) => {
-      const error = evt.payload?.error || new Error('Unknown network error');
-      console.error(`[HyperToken] Network error:`, error);
+      const error = this.extractNetworkError(evt);
+      if (this.isExpectedFallbackError(error)) {
+        if (!this.loggedFallbackNetworkWarning) {
+          console.warn(
+            `[HyperToken] Relay unavailable at ${this.relayUrl}; continuing in degraded/fallback mode`
+          );
+          this.loggedFallbackNetworkWarning = true;
+        }
+      } else {
+        console.error(`[HyperToken] Network error:`, error);
+      }
       if (this.readyReject && !this.isReady) {
         this.readyReject(error);
       }
@@ -305,7 +316,12 @@ export class HyperTokenAdapter {
     });
 
     this.routedManager.on('rtc:downgraded', (evt: any) => {
-      console.log(`[HyperToken] WebRTC connection lost with ${evt.payload.peerId}, using WebSocket fallback`);
+      const peerId = evt.payload.peerId as string;
+      if (this.downgradedPeers.has(peerId)) {
+        return;
+      }
+      this.downgradedPeers.add(peerId);
+      console.log(`[HyperToken] WebRTC connection lost with ${peerId}, using WebSocket fallback`);
     });
 
     // Initiate connection
@@ -510,11 +526,71 @@ export class HyperTokenAdapter {
     this.encryption.clearSessions();
     this.stateSync.destroy();
     this.peerWrappers.clear();
+    this.downgradedPeers.clear();
+    this.loggedFallbackNetworkWarning = false;
     this.isReady = false;
   }
 
   private generatePeerId(): string {
     return `peer-${Math.random().toString(36).substring(2, 11)}`;
+  }
+
+  private extractNetworkError(evt: any): Error {
+    const candidate = evt?.payload?.error ?? evt?.payload?.payload?.error;
+    if (candidate instanceof Error) {
+      return candidate;
+    }
+    if (typeof candidate === 'string') {
+      return new Error(candidate);
+    }
+    if (candidate && typeof candidate === 'object') {
+      const nested = (candidate as { error?: unknown }).error;
+      if (nested instanceof Error) {
+        return nested;
+      }
+      if (typeof nested === 'string') {
+        return new Error(nested);
+      }
+
+      const message = (candidate as { message?: unknown }).message;
+      if (typeof message === 'string' && message.length > 0) {
+        const code = (candidate as { code?: unknown }).code;
+        return new Error(typeof code === 'string' ? `${code}: ${message}` : message);
+      }
+
+      const code = (candidate as { code?: unknown }).code;
+      if (typeof code === 'string' && code.length > 0) {
+        return new Error(code);
+      }
+    }
+    return new Error('Unknown network error');
+  }
+
+  private isExpectedFallbackError(error: unknown): boolean {
+    if (typeof AggregateError !== 'undefined' && error instanceof AggregateError) {
+      return true;
+    }
+
+    const message = error instanceof Error
+      ? error.message
+      : typeof error === 'string'
+        ? error
+        : String(error ?? '');
+    const code = error && typeof error === 'object'
+      ? (error as { code?: unknown }).code
+      : undefined;
+    const causeCode = error && typeof error === 'object'
+      ? ((error as { cause?: { code?: unknown } }).cause?.code)
+      : undefined;
+
+    if (typeof code === 'string' && /ECONNREFUSED|ENOTFOUND|EHOSTUNREACH|ETIMEDOUT|ECONNRESET/i.test(code)) {
+      return true;
+    }
+    if (typeof causeCode === 'string' && /ECONNREFUSED|ENOTFOUND|EHOSTUNREACH|ETIMEDOUT|ECONNRESET/i.test(causeCode)) {
+      return true;
+    }
+
+    return /ECONNREFUSED|ENOTFOUND|EHOSTUNREACH|ETIMEDOUT|ECONNRESET|connection timeout|WebSocket/i.test(message);
   }
 }
 

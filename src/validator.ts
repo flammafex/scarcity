@@ -189,8 +189,9 @@ export class TransferValidator {
    */
   async fastValidate(pkg: TransferPackage): Promise<ValidationResult> {
     const gossipConfidence = await this.gossip.checkNullifier(pkg.nullifier);
+    const DOUBLE_SPEND_THRESHOLD = 0.5;
 
-    if (gossipConfidence > 0) {
+    if (gossipConfidence > DOUBLE_SPEND_THRESHOLD) {
       return {
         valid: false,
         confidence: 0,

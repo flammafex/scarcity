@@ -6,6 +6,7 @@
 
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
+import type { Server as HttpServer } from 'http';
 import { join } from 'path';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
@@ -31,6 +32,7 @@ export class WebWalletServer {
   private tokenStorage: TokenStorage;
   private infraManager: InfrastructureManager;
   private initialized = false;
+  private httpServer?: HttpServer;
 
   constructor(port = 3000) {
     this.app = express();
@@ -66,13 +68,13 @@ export class WebWalletServer {
   private setupRoutes(): void {
     // Health check
     this.app.get('/api/health', (req, res) => {
-      res.json({
-        success: true,
-        data: {
-          initialized: this.initialized,
-          version: '0.1.0'
-        }
-      });
+        res.json({
+          success: true,
+          data: {
+            initialized: this.initialized,
+            version: '0.2.0'
+          }
+        });
     });
 
     // Initialize infrastructure
@@ -242,16 +244,15 @@ export class WebWalletServer {
         const token = ScarbuckToken.mint(amount, infra.freebird, infra.witness, infra.gossip);
         const metadata = token.getMetadata();
 
-        // Store token - we need to get the secret from the token
-        // Since we can't access the secret directly, we'll generate a new one and store the token ID
-        const secret = Crypto.randomBytes(32);
+        // Persist the token's actual secret so future operations recreate the same token state.
+        const persisted = token.getPersistentState();
         this.tokenStorage.addToken({
-          id: metadata.id,
-          amount: metadata.amount,
-          secretKey: Crypto.toHex(secret),
+          id: persisted.id,
+          amount: persisted.amount,
+          secretKey: Crypto.toHex(persisted.secret),
           wallet,
           created: Date.now(),
-          spent: false,
+          spent: persisted.spent,
           metadata: { type: 'minted' }
         });
 
@@ -283,9 +284,19 @@ export class WebWalletServer {
           return res.status(400).json({ success: false, error: 'Token not found or already spent' });
         }
 
-        // Recreate token
+        // Recreate token using the original id/secret from storage.
         const infra = this.infraManager.get();
-        const token = ScarbuckToken.mint(storedToken.amount, infra.freebird, infra.witness, infra.gossip);
+        const token = ScarbuckToken.fromPersistentState(
+          {
+            id: storedToken.id,
+            amount: storedToken.amount,
+            secret: Crypto.fromHex(storedToken.secretKey),
+            spent: storedToken.spent
+          },
+          infra.freebird,
+          infra.witness,
+          infra.gossip
+        );
 
         // Create recipient public key
         const recipient: PublicKey = {
@@ -394,9 +405,19 @@ export class WebWalletServer {
           return res.status(400).json({ success: false, error: 'Token not found or already spent' });
         }
 
-        // Recreate token
+        // Recreate token using the original id/secret from storage.
         const infra = this.infraManager.get();
-        const token = ScarbuckToken.mint(storedToken.amount, infra.freebird, infra.witness, infra.gossip);
+        const token = ScarbuckToken.fromPersistentState(
+          {
+            id: storedToken.id,
+            amount: storedToken.amount,
+            secret: Crypto.fromHex(storedToken.secretKey),
+            spent: storedToken.spent
+          },
+          infra.freebird,
+          infra.witness,
+          infra.gossip
+        );
 
         // Create recipient public keys (same owner for all splits)
         const walletPubKey = this.walletManager.getPublicKey(storedToken.wallet);
@@ -410,7 +431,7 @@ export class WebWalletServer {
 
         // Store new tokens
         const newTokens = splitPackage.splits.map((split, index) => {
-          const secret = Crypto.randomBytes(32);
+          const secret = this.walletManager.getSecretKey(storedToken.wallet);
           this.tokenStorage.addToken({
             id: split.tokenId,
             amount: split.amount,
@@ -459,10 +480,18 @@ export class WebWalletServer {
 
         const infra = this.infraManager.get();
 
-        // Recreate tokens
-        const tokens = storedTokens.map(st =>
-          ScarbuckToken.mint(st.amount, infra.freebird, infra.witness, infra.gossip)
-        );
+        // Recreate tokens using original ids/secrets from storage.
+        const tokens = storedTokens.map(st => ScarbuckToken.fromPersistentState(
+          {
+            id: st.id,
+            amount: st.amount,
+            secret: Crypto.fromHex(st.secretKey),
+            spent: st.spent
+          },
+          infra.freebird,
+          infra.witness,
+          infra.gossip
+        ));
 
         // Get recipient public key (same wallet)
         const recipientKey = this.walletManager.getPublicKey(storedTokens[0].wallet);
@@ -476,7 +505,7 @@ export class WebWalletServer {
         }
 
         // Store merged token
-        const secret = Crypto.randomBytes(32);
+        const secret = this.walletManager.getSecretKey(storedTokens[0].wallet);
         this.tokenStorage.addToken({
           id: mergePackage.targetTokenId,
           amount: mergePackage.targetAmount,
@@ -505,7 +534,7 @@ export class WebWalletServer {
    */
   async start(port = 3000): Promise<void> {
     return new Promise((resolve) => {
-      this.app.listen(port, () => {
+      this.httpServer = this.app.listen(port, () => {
         console.log(`\n🔨 Scarcity Web Wallet`);
         console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
         console.log(`Server running at http://localhost:${port}`);
@@ -516,6 +545,24 @@ export class WebWalletServer {
         console.log(`  Tokens:  GET  /api/tokens`);
         console.log(`\nOpen http://localhost:${port} in your browser`);
         console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
+        resolve();
+      });
+    });
+  }
+
+  /**
+   * Stop the server and cleanup infrastructure resources.
+   */
+  async stop(): Promise<void> {
+    await this.infraManager.cleanup();
+    if (!this.httpServer) return;
+    await new Promise<void>((resolve, reject) => {
+      this.httpServer!.close((error?: Error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        this.httpServer = undefined;
         resolve();
       });
     });

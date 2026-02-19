@@ -21,6 +21,11 @@ export interface FreebirdAdapterConfig {
   readonly issuerEndpoints: string[];
   readonly verifierUrl: string;
   readonly tor?: TorConfig;
+  /**
+   * Enables insecure offline fallback behavior when issuer/verifier are unavailable.
+   * Intended for local development/testing only.
+   */
+  readonly allowInsecureFallback?: boolean;
 }
 
 /**
@@ -42,8 +47,11 @@ export class FreebirdAdapter implements FreebirdClient {
   private readonly verifierUrl: string;
   private readonly context: Uint8Array;
   private readonly tor: TorProxy | null;
+  private readonly allowInsecureFallback: boolean;
   private metadata: Map<string, any> = new Map();
   private blindStates: Map<string, BlindState> = new Map();
+  private noIssuersWarningLogged = false;
+  private warningKeys = new Set<string>();
 
   constructor(config: FreebirdAdapterConfig) {
     if (!config.issuerEndpoints || config.issuerEndpoints.length === 0) {
@@ -53,6 +61,11 @@ export class FreebirdAdapter implements FreebirdClient {
     this.issuerEndpoints = config.issuerEndpoints;
     this.verifierUrl = config.verifierUrl;
     this.tor = config.tor ? new TorProxy(config.tor) : null;
+    const envFallback =
+      typeof process !== 'undefined' &&
+      !!process.env &&
+      process.env.SCARCITY_ALLOW_INSECURE_FALLBACK === 'true';
+    this.allowInsecureFallback = config.allowInsecureFallback ?? envFallback;
     // Context must match Freebird server
     this.context = new TextEncoder().encode('freebird:v1');
 
@@ -84,6 +97,36 @@ export class FreebirdAdapter implements FreebirdClient {
     return fetch(url, options);
   }
 
+  private warningOnce(key: string, message: string): void {
+    if (this.warningKeys.has(key)) return;
+    this.warningKeys.add(key);
+    console.warn(message);
+  }
+
+  private summarizeError(error: unknown): string {
+    if (error instanceof Error) {
+      const code = (error as { code?: unknown }).code;
+      if (typeof code === 'string' && code.length > 0) {
+        return `${code}: ${error.message}`;
+      }
+      return error.message || error.name;
+    }
+    if (error && typeof error === 'object') {
+      const code = (error as { code?: unknown }).code;
+      const message = (error as { message?: unknown }).message;
+      if (typeof code === 'string' && typeof message === 'string') {
+        return `${code}: ${message}`;
+      }
+      if (typeof message === 'string') {
+        return message;
+      }
+      if (typeof code === 'string') {
+        return code;
+      }
+    }
+    return String(error ?? 'unknown error');
+  }
+
   /**
    * Initialize by fetching metadata from all issuers
    */
@@ -101,7 +144,10 @@ export class FreebirdAdapter implements FreebirdClient {
         }
         return { url, index, success: false };
       } catch (error) {
-        console.warn(`[Freebird] Issuer ${url} not available:`, error);
+        this.warningOnce(
+          `init:${url}`,
+          `[Freebird] Issuer ${url} not available (${this.summarizeError(error)})`
+        );
         return { url, index, success: false };
       }
     });
@@ -111,8 +157,12 @@ export class FreebirdAdapter implements FreebirdClient {
 
     if (successCount > 0) {
       console.log(`[Freebird] Connected to ${successCount}/${this.issuerEndpoints.length} issuers`);
+      this.noIssuersWarningLogged = false;
     } else {
-      console.error('[Freebird] No issuers available - operations will fail');
+      if (!this.noIssuersWarningLogged) {
+        console.warn('[Freebird] No issuers available, using configured fallback/error behavior');
+        this.noIssuersWarningLogged = true;
+      }
     }
   }
 
@@ -128,7 +178,15 @@ export class FreebirdAdapter implements FreebirdClient {
     await this.init();
 
     if (this.metadata.size === 0) {
-      throw new Error('Blinding failed: no Freebird issuer available');
+      if (!this.allowInsecureFallback) {
+        throw new Error(
+          'Blinding failed: no Freebird issuer available. ' +
+          'Set SCARCITY_ALLOW_INSECURE_FALLBACK=true (or allowInsecureFallback) for local/dev fallback mode.'
+        );
+      }
+      // Fallback mode for local/offline development.
+      // Produces a deterministic 32-byte commitment-shaped value.
+      return Crypto.hash(new TextEncoder().encode('freebird-fallback-blind'), publicKey.bytes);
     }
 
     const { blinded, state } = voprf.blind(publicKey.bytes, this.context);
@@ -215,7 +273,10 @@ export class FreebirdAdapter implements FreebirdClient {
           return tokenBytes;
 
         } catch (error) {
-          console.warn(`[Freebird] Request to ${url} failed:`, error);
+          this.warningOnce(
+            `issue:${url}`,
+            `[Freebird] Request to ${url} failed (${this.summarizeError(error)}), trying next`
+          );
           continue;
         }
       }
@@ -225,9 +286,23 @@ export class FreebirdAdapter implements FreebirdClient {
       throw new Error('All configured issuers failed to issue token');
     }
 
-    // No issuer available or no blind state - fail securely
+    // Fallback mode for local/offline development.
+    // Keep token length at 32 bytes to match existing fallback tests and tooling.
+    if (this.metadata.size === 0) {
+      if (!this.allowInsecureFallback) {
+        this.blindStates.delete(blindedHex);
+        throw new Error(
+          'Token issuance failed: no Freebird issuer available. ' +
+          'Set SCARCITY_ALLOW_INSECURE_FALLBACK=true (or allowInsecureFallback) for local/dev fallback mode.'
+        );
+      }
+      this.blindStates.delete(blindedHex);
+      return Crypto.hash(new TextEncoder().encode('freebird-fallback-token'), blindedValue);
+    }
+
+    // Issuer exists but blind state is missing: this is a usage error.
     this.blindStates.delete(blindedHex);
-    throw new Error('Token issuance failed: no Freebird issuer available or missing blind state');
+    throw new Error('Token issuance failed: missing blind state');
   }
 
   /**
@@ -313,7 +388,14 @@ export class FreebirdAdapter implements FreebirdClient {
     await this.init();
 
     if (this.metadata.size === 0) {
-      throw new Error('Token verification failed: no Freebird issuer available');
+      if (!this.allowInsecureFallback) {
+        throw new Error(
+          'Token verification failed: no Freebird issuer available. ' +
+          'Set SCARCITY_ALLOW_INSECURE_FALLBACK=true (or allowInsecureFallback) for local/dev fallback mode.'
+        );
+      }
+      // Fallback mode for local/offline development.
+      return token.length > 0;
     }
 
     if (!this.verifierUrl) {

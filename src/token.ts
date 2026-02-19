@@ -27,6 +27,13 @@ export interface ScarbuckTokenConfig {
   readonly gossip: GossipNetwork;
 }
 
+export interface ScarbuckTokenPersistentState {
+  readonly id: string;
+  readonly amount: number;
+  readonly secret: Uint8Array;
+  readonly spent: boolean;
+}
+
 export class ScarbuckToken {
   private readonly id: string;
   private readonly amount: number;
@@ -201,14 +208,16 @@ export class ScarbuckToken {
     const witness = tokens[0].witness;
     const gossip = tokens[0].gossip;
 
+    const tokenStates = tokens.map((token) => token.getPersistentState());
+
     // Verify no tokens are already spent
-    const spentTokens = tokens.filter(t => t.spent);
+    const spentTokens = tokenStates.filter((state) => state.spent);
     if (spentTokens.length > 0) {
-      throw new Error(`Cannot merge spent tokens: ${spentTokens.map(t => t.id).join(', ')}`);
+      throw new Error(`Cannot merge spent tokens: ${spentTokens.map((state) => state.id).join(', ')}`);
     }
 
     // Calculate total amount
-    const targetAmount = tokens.reduce((sum, token) => sum + token.amount, 0);
+    const targetAmount = tokenStates.reduce((sum, state) => sum + state.amount, 0);
 
     // Generate new token ID
     const targetTokenId = Crypto.toHex(Crypto.randomBytes(32));
@@ -218,11 +227,11 @@ export class ScarbuckToken {
 
     // Generate nullifiers and ownership proofs for all source tokens
     const sources = await Promise.all(
-      tokens.map(async (token) => {
-        const nullifier = Crypto.hash(token.secret, token.id);
+      tokenStates.map(async (state) => {
+        const nullifier = Crypto.hash(state.secret, state.id);
         return {
-          tokenId: token.id,
-          amount: token.amount,
+          tokenId: state.id,
+          amount: state.amount,
           nullifier
         };
       })
@@ -230,8 +239,8 @@ export class ScarbuckToken {
 
     // Create ownership proofs for each token, bound to its nullifier
     const ownershipProofs = await Promise.all(
-      tokens.map((token, i) =>
-        freebird.createOwnershipProof(token.secret, sources[i].nullifier)
+      tokenStates.map((state, i) =>
+        freebird.createOwnershipProof(state.secret, sources[i].nullifier)
       )
     );
 
@@ -256,7 +265,7 @@ export class ScarbuckToken {
 
     // Mark all tokens as spent
     tokens.forEach(token => {
-      (token as any).spent = true;
+      token.markSpent();
     });
 
     return {
@@ -295,6 +304,29 @@ export class ScarbuckToken {
   }
 
   /**
+   * Restore a token from previously persisted state.
+   */
+  static fromPersistentState(
+    state: ScarbuckTokenPersistentState,
+    freebird: FreebirdClient,
+    witness: WitnessClient,
+    gossip: GossipNetwork
+  ): ScarbuckToken {
+    const token = new ScarbuckToken({
+      id: state.id,
+      amount: state.amount,
+      secret: state.secret,
+      freebird,
+      witness,
+      gossip
+    });
+    if (state.spent) {
+      token.markSpent();
+    }
+    return token;
+  }
+
+  /**
    * Receive a token from transfer package
    *
    * @param pkg - Transfer package from sender
@@ -319,7 +351,7 @@ export class ScarbuckToken {
 
     // Verify ownership proof if present
     if (pkg.ownershipProof) {
-      const ownershipValid = await freebird.verifyToken(pkg.ownershipProof);
+      const ownershipValid = await freebird.verifyOwnershipProof(pkg.ownershipProof, pkg.nullifier);
       if (!ownershipValid) {
         throw new Error('Invalid ownership proof');
       }
@@ -369,7 +401,7 @@ export class ScarbuckToken {
 
     // Verify ownership proof if present
     if (pkg.ownershipProof) {
-      const ownershipValid = await freebird.verifyToken(pkg.ownershipProof);
+      const ownershipValid = await freebird.verifyOwnershipProof(pkg.ownershipProof, pkg.nullifier);
       if (!ownershipValid) {
         throw new Error('Invalid ownership proof');
       }
@@ -415,7 +447,9 @@ export class ScarbuckToken {
     // Verify ownership proofs if present
     if (pkg.ownershipProofs) {
       const validations = await Promise.all(
-        pkg.ownershipProofs.map(proof => freebird.verifyToken(proof))
+        pkg.ownershipProofs.map((proof, i) =>
+          freebird.verifyOwnershipProof(proof, pkg.sources[i].nullifier)
+        )
       );
       if (validations.some(v => !v)) {
         throw new Error('Invalid ownership proofs in merge');
@@ -540,7 +574,7 @@ export class ScarbuckToken {
 
     // Verify ownership proof if present
     if (pkg.ownershipProof) {
-      const ownershipValid = await freebird.verifyToken(pkg.ownershipProof);
+      const ownershipValid = await freebird.verifyOwnershipProof(pkg.ownershipProof, pkg.nullifier);
       if (!ownershipValid) {
         throw new Error('Invalid ownership proof');
       }
@@ -572,10 +606,31 @@ export class ScarbuckToken {
   }
 
   /**
+   * Export minimal state needed for local persistence.
+   * Secret is returned as a copy.
+   */
+  getPersistentState(): ScarbuckTokenPersistentState {
+    return {
+      id: this.id,
+      amount: this.amount,
+      secret: new Uint8Array(this.secret),
+      spent: this.spent
+    };
+  }
+
+  /**
    * Check if token has been spent
    */
   isSpent(): boolean {
     return this.spent;
+  }
+
+  /**
+   * Mark token as spent.
+   * Intended for flows that consume a token outside transfer/split/merge (e.g. bridging).
+   */
+  markSpent(): void {
+    this.spent = true;
   }
 
   /**
@@ -680,7 +735,7 @@ export class ScarbuckToken {
 
     // Verify ownership proof if present
     if (pkg.ownershipProof) {
-      const ownershipValid = await freebird.verifyToken(pkg.ownershipProof);
+      const ownershipValid = await freebird.verifyOwnershipProof(pkg.ownershipProof, pkg.nullifier);
       if (!ownershipValid) {
         throw new Error('Invalid ownership proof');
       }

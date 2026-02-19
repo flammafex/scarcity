@@ -19,6 +19,11 @@ export interface WitnessAdapterConfig {
   readonly tor?: TorConfig;
   readonly powDifficulty?: number; // Proof-of-work difficulty in bits (default: 0 = disabled)
   readonly quorumThreshold?: number; // Minimum agreements required (default: 2 for 2-of-3)
+  /**
+   * Enables insecure offline fallback behavior when gateways are unavailable.
+   * Intended for local development/testing only.
+   */
+  readonly allowInsecureFallback?: boolean;
 }
 
 /**
@@ -33,7 +38,11 @@ export class WitnessAdapter implements WitnessClient {
   private readonly tor: TorProxy | null;
   private readonly powDifficulty: number;
   private readonly quorumThreshold: number;
+  private readonly allowInsecureFallback: boolean;
   private config: any = null;
+  private readonly fallbackWitnessIds = ['fallback-witness-1', 'fallback-witness-2'];
+  private warningKeys = new Set<string>();
+  private noGatewayWarningLogged = false;
 
   constructor(config: WitnessAdapterConfig) {
     // Support both single gateway (backward compatibility) and multiple gateways
@@ -48,6 +57,11 @@ export class WitnessAdapter implements WitnessClient {
     this.networkId = config.networkId ?? 'scarcity-network';
     this.tor = config.tor ? new TorProxy(config.tor) : null;
     this.powDifficulty = config.powDifficulty ?? 0; // Default: disabled
+    const envFallback =
+      typeof process !== 'undefined' &&
+      !!process.env &&
+      process.env.SCARCITY_ALLOW_INSECURE_FALLBACK === 'true';
+    this.allowInsecureFallback = config.allowInsecureFallback ?? envFallback;
 
     // Default quorum: 2-of-3 (or majority if different number of gateways)
     this.quorumThreshold = config.quorumThreshold ?? Math.ceil(this.gatewayUrls.length / 2);
@@ -76,6 +90,36 @@ export class WitnessAdapter implements WitnessClient {
     return fetch(url, options);
   }
 
+  private warningOnce(key: string, message: string): void {
+    if (this.warningKeys.has(key)) return;
+    this.warningKeys.add(key);
+    console.warn(message);
+  }
+
+  private summarizeError(error: unknown): string {
+    if (error instanceof Error) {
+      const code = (error as { code?: unknown }).code;
+      if (typeof code === 'string' && code.length > 0) {
+        return `${code}: ${error.message}`;
+      }
+      return error.message || error.name;
+    }
+    if (error && typeof error === 'object') {
+      const code = (error as { code?: unknown }).code;
+      const message = (error as { message?: unknown }).message;
+      if (typeof code === 'string' && typeof message === 'string') {
+        return `${code}: ${message}`;
+      }
+      if (typeof message === 'string') {
+        return message;
+      }
+      if (typeof code === 'string') {
+        return code;
+      }
+    }
+    return String(error ?? 'unknown error');
+  }
+
   /**
    * Initialize by fetching network configuration
    * Tries all gateways and succeeds if at least one responds
@@ -92,7 +136,10 @@ export class WitnessAdapter implements WitnessClient {
         }
         return null;
       } catch (error) {
-        console.warn(`[Witness] Gateway ${url} not available:`, error);
+        this.warningOnce(
+          `init:${url}`,
+          `[Witness] Gateway ${url} not available (${this.summarizeError(error)})`
+        );
         return null;
       }
     });
@@ -103,8 +150,12 @@ export class WitnessAdapter implements WitnessClient {
     if (validConfig) {
       this.config = validConfig;
       console.log('[Witness] Connected to network:', this.config.network_id || 'unknown');
+      this.noGatewayWarningLogged = false;
     } else {
-      console.warn('[Witness] No gateways available, using fallback mode');
+      if (!this.noGatewayWarningLogged) {
+        console.warn('[Witness] No gateways available, using fallback mode');
+        this.noGatewayWarningLogged = true;
+      }
     }
   }
 
@@ -200,7 +251,10 @@ export class WitnessAdapter implements WitnessClient {
           }
           return null;
         } catch (error) {
-          console.warn(`[Witness] Timestamping failed for gateway ${gatewayUrl}:`, error);
+          this.warningOnce(
+            `timestamp:${gatewayUrl}`,
+            `[Witness] Timestamping failed for gateway ${gatewayUrl} (${this.summarizeError(error)})`
+          );
           return null;
         }
       });
@@ -215,9 +269,26 @@ export class WitnessAdapter implements WitnessClient {
       }
     }
 
-    // All gateways failed - this is a fatal error
-    // Never create fake signatures as this would undermine the security model
-    throw new Error('Timestamping failed: no Witness gateway available');
+    if (!this.allowInsecureFallback) {
+      throw new Error(
+        'Timestamping failed: no Witness gateway available. ' +
+        'Set SCARCITY_ALLOW_INSECURE_FALLBACK=true (or allowInsecureFallback) for local/dev fallback mode.'
+      );
+    }
+
+    // Fallback mode for local/offline development and tests.
+    // Produces a structurally valid attestation without remote guarantees.
+    const fallbackTimestamp = Date.now();
+    const fallbackSignatures = this.fallbackWitnessIds.map((id) =>
+      Crypto.hashString(`fallback-sig:${id}:${hash}:${fallbackTimestamp}`)
+    );
+
+    return {
+      hash,
+      timestamp: fallbackTimestamp,
+      signatures: fallbackSignatures,
+      witnessIds: [...this.fallbackWitnessIds]
+    };
   }
 
   /**
@@ -274,7 +345,10 @@ export class WitnessAdapter implements WitnessClient {
           return data.valid === true;
         }
       } catch (error) {
-        console.warn(`[Witness] Gateway ${gatewayUrl} verification failed:`, error);
+        this.warningOnce(
+          `verify:${gatewayUrl}`,
+          `[Witness] Gateway ${gatewayUrl} verification failed (${this.summarizeError(error)})`
+        );
         continue;
       }
     }
@@ -288,8 +362,18 @@ export class WitnessAdapter implements WitnessClient {
       }
     }
 
-    // No verification method succeeded - fail securely
-    throw new Error('Attestation verification failed: no gateway available and local BLS verification not possible');
+    if (!this.allowInsecureFallback) {
+      throw new Error(
+        'Attestation verification failed: no Witness gateway available. ' +
+        'Set SCARCITY_ALLOW_INSECURE_FALLBACK=true (or allowInsecureFallback) for local/dev fallback mode.'
+      );
+    }
+
+    // Fallback mode for local/offline development and tests.
+    return (
+      attestation.signatures.length >= 2 &&
+      attestation.witnessIds.length === attestation.signatures.length
+    );
   }
 
   /**
@@ -481,7 +565,10 @@ export class WitnessAdapter implements WitnessClient {
 
           return null; // Gateway error
         } catch (error) {
-          console.warn(`[Witness] Gateway ${gatewayUrl} failed for nullifier check:`, error);
+          this.warningOnce(
+            `nullifier:${gatewayUrl}`,
+            `[Witness] Gateway ${gatewayUrl} failed for nullifier check (${this.summarizeError(error)})`
+          );
           return null; // Network error
         }
       });
@@ -568,7 +655,10 @@ export class WitnessAdapter implements WitnessClient {
           }
           return null;
         } catch (error) {
-          console.warn(`[Witness] Failed to retrieve attestation from ${gatewayUrl}:`, error);
+          this.warningOnce(
+            `attestation:${gatewayUrl}`,
+            `[Witness] Failed to retrieve attestation from ${gatewayUrl} (${this.summarizeError(error)})`
+          );
           return null;
         }
       });

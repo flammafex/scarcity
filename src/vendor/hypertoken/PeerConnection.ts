@@ -320,7 +320,6 @@ export class PeerConnection extends Emitter {
    */
   private _scheduleReconnect(): void {
     if (!this.reconnectConfig.enabled) {
-      console.log("[PeerConnection] Reconnection disabled");
       return;
     }
 
@@ -348,7 +347,14 @@ export class PeerConnection extends Emitter {
 
     this.reconnectAttempts++;
 
-    console.log(`[PeerConnection] Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts}/${this.reconnectConfig.maxAttempts === Infinity ? '∞' : this.reconnectConfig.maxAttempts})`);
+    // Keep reconnect logs readable under expected fallback by logging only
+    // early attempts and powers-of-two backoff milestones.
+    if (
+      this.reconnectAttempts <= 2 ||
+      (this.reconnectAttempts & (this.reconnectAttempts - 1)) === 0
+    ) {
+      console.log(`[PeerConnection] Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts}/${this.reconnectConfig.maxAttempts === Infinity ? '∞' : this.reconnectConfig.maxAttempts})`);
+    }
 
     this.emit("net:reconnecting", {
       attempt: this.reconnectAttempts,

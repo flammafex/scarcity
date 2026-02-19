@@ -60,10 +60,12 @@ export class FederationBridge {
     token: ScarbuckToken,
     recipientKey: PublicKey
   ): Promise<BridgePackage> {
+    const tokenState = token.getPersistentState();
+
     // Phase 1: Lock token in source federation
     const nullifier = Crypto.hash(
-      (token as any).secret,
-      (token as any).id
+      tokenState.secret,
+      tokenState.id
     );
 
     // Create commitment for recipient in target federation
@@ -71,16 +73,16 @@ export class FederationBridge {
 
     // Create ownership proof bound to nullifier
     const ownershipProof = await this.freebird.createOwnershipProof(
-      (token as any).secret,
+      tokenState.secret,
       nullifier
     );
 
     // Package bridge data for source federation
     const lockPackage = {
-      sourceTokenId: (token as any).id,
+      sourceTokenId: tokenState.id,
       sourceFederation: this.sourceFederation,
       targetFederation: this.targetFederation,
-      amount: (token as any).amount,
+      amount: tokenState.amount,
       commitment,
       nullifier
     };
@@ -95,7 +97,7 @@ export class FederationBridge {
     await this.sourceGossip.publish(nullifier, sourceProof);
 
     // Mark source token as spent
-    (token as any).spent = true;
+    token.markSpent();
 
     // Phase 2: Mint equivalent token in target federation
     // Package mint data for target federation
@@ -115,10 +117,10 @@ export class FederationBridge {
     // The nullifier will be published when this token is spent in the target federation
 
     return {
-      sourceTokenId: (token as any).id,
+      sourceTokenId: tokenState.id,
       sourceFederation: this.sourceFederation,
       targetFederation: this.targetFederation,
-      amount: (token as any).amount,
+      amount: tokenState.amount,
       commitment,
       nullifier,
       sourceProof,
@@ -154,7 +156,7 @@ export class FederationBridge {
 
     // Verify ownership proof
     if (pkg.ownershipProof) {
-      const ownershipValid = await this.freebird.verifyToken(pkg.ownershipProof);
+      const ownershipValid = await this.freebird.verifyOwnershipProof(pkg.ownershipProof, pkg.nullifier);
       if (!ownershipValid) {
         throw new Error('Invalid ownership proof');
       }

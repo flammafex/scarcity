@@ -14,6 +14,7 @@ import { runPhase3CLITests } from './integration/05-phase3-cli.test.js';
 import { runSpamMitigationTest } from './integration/06-spam-mitigation.test.js';
 import { runSecurityHardeningTest } from './integration/07-security-hardening.test.js';
 import { runCryptoCorrectnessTest } from './integration/08-crypto-correctness.test.js';
+import { runWebLifecycleApiTest } from './integration/09-web-lifecycle-api.test.js';
 
 interface TestSuite {
   name: string;
@@ -61,6 +62,11 @@ const testSuites: TestSuite[] = [
     name: 'Cryptographic Correctness',
     run: runCryptoCorrectnessTest,
     requiresServices: false // Pure crypto tests, no external services
+  },
+  {
+    name: 'Web API Lifecycle',
+    run: runWebLifecycleApiTest,
+    requiresServices: false // Designed to run in fallback mode
   }
 ];
 

@@ -97,14 +97,17 @@ export class HTLCCommand extends Command {
       }
 
       // Recreate token
-      const token = new ScarbuckToken({
-        id: storedToken.id,
-        amount: storedToken.amount,
-        secret: Crypto.fromHex(storedToken.secretKey),
+      const token = ScarbuckToken.fromPersistentState(
+        {
+          id: storedToken.id,
+          amount: storedToken.amount,
+          secret: Crypto.fromHex(storedToken.secretKey),
+          spent: storedToken.spent
+        },
         freebird,
         witness,
         gossip
-      });
+      );
 
       // Create HTLC condition
       const condition: any = {
@@ -253,13 +256,14 @@ export class HTLCCommand extends Command {
 
       // Store received token
       const metadata = token.getMetadata();
+      const persisted = token.getPersistentState();
       storage.addToken({
-        id: metadata.id,
-        amount: metadata.amount,
-        secretKey: Crypto.toHex((token as any).secret),
+        id: persisted.id,
+        amount: persisted.amount,
+        secretKey: Crypto.toHex(persisted.secret),
         wallet: wallet as string,
         created: Date.now(),
-        spent: false,
+        spent: persisted.spent,
         metadata: {
           type: 'received',
           source: 'htlc',
@@ -353,13 +357,14 @@ export class HTLCCommand extends Command {
 
       // Store refunded token
       const metadata = token.getMetadata();
+      const persisted = token.getPersistentState();
       storage.addToken({
-        id: metadata.id,
-        amount: metadata.amount,
-        secretKey: Crypto.toHex((token as any).secret),
+        id: persisted.id,
+        amount: persisted.amount,
+        secretKey: Crypto.toHex(persisted.secret),
         wallet: wallet as string,
         created: Date.now(),
-        spent: false,
+        spent: persisted.spent,
         metadata: {
           type: 'received',
           source: 'htlc-refund',

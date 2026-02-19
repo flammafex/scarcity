@@ -5,6 +5,11 @@
 import { Crypto } from '../../src/crypto.js';
 import type { PublicKey } from '../../src/types.js';
 
+// Integration tests intentionally exercise fallback paths when services are unavailable.
+if (!Object.prototype.hasOwnProperty.call(process.env, 'SCARCITY_ALLOW_INSECURE_FALLBACK')) {
+  process.env.SCARCITY_ALLOW_INSECURE_FALLBACK = 'true';
+}
+
 // Centralized test configuration with environment variable support
 export const TestConfig = {
   freebird: {

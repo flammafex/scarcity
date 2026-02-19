@@ -13,7 +13,7 @@ import { BridgeCommand } from './commands/bridge.js';
 import { ConfigCommand } from './commands/config.js';
 import { InteractiveCommand } from './commands/interactive.js';
 
-const VERSION = '0.1.0';
+const VERSION = '0.2.0';
 
 async function main() {
   const args = process.argv.slice(2);
