@@ -50,6 +50,7 @@ export class FreebirdAdapter implements FreebirdClient {
   private readonly allowInsecureFallback: boolean;
   private metadata: Map<string, any> = new Map();
   private blindStates: Map<string, BlindState> = new Map();
+  private issuedTokenMetadata = new Map<string, { exp: number; epoch: number; issuerId: string }>();
   private noIssuersWarningLogged = false;
   private warningKeys = new Set<string>();
 
@@ -242,23 +243,31 @@ export class FreebirdAdapter implements FreebirdClient {
 
           const data = await response.json();
 
-          // Extract evaluated point from token response
-          // Token format: [ A (33) | B (33) | Proof (64) ]
+          // Extract VOPRF token from issuer response.
+          // Supports legacy (130) and versioned (131) VOPRF tokens, and
+          // signature-appended variants (194/195).
           const tokenBytes = this.base64UrlToBytes(data.token);
-          if (tokenBytes.length !== 130) {
+          const parsedToken = this.parseIssuerToken(tokenBytes);
+          if (!parsedToken) {
             console.warn(`[Freebird] Invalid token length from ${url}, trying next`);
             continue;
           }
+          const { rawToken, voprfToken, pointOffset } = parsedToken;
 
-          // Extract B (the evaluated point) - bytes 33-66
-          const B_bytes = tokenBytes.slice(33, 66);
+          // Extract A, B, and proof from VOPRF portion
+          const A_bytes = voprfToken.slice(pointOffset, pointOffset + 33);
+          const B_bytes = voprfToken.slice(pointOffset + 33, pointOffset + 66);
+          const proofBytes = voprfToken.slice(pointOffset + 66);
+          if (A_bytes.length !== 33 || B_bytes.length !== 33 || proofBytes.length !== 64) {
+            console.warn(`[Freebird] Invalid VOPRF token layout from ${url}, trying next`);
+            continue;
+          }
 
           // Verify DLEQ proof
           const G = p256.ProjectivePoint.BASE;
           const Q = this.decodePublicKey(metadata.voprf.pubkey);
-          const A = this.decodePoint(tokenBytes.slice(0, 33));
+          const A = this.decodePoint(A_bytes);
           const B = this.decodePoint(B_bytes);
-          const proofBytes = tokenBytes.slice(66);
 
           const isValid = this.verifyDleqExternal(G, Q, A, B, proofBytes);
 
@@ -269,8 +278,13 @@ export class FreebirdAdapter implements FreebirdClient {
 
           // Success! Clean up and return the verified token
           this.blindStates.delete(blindedHex);
+          this.issuedTokenMetadata.set(Crypto.toHex(rawToken), {
+            exp: typeof data.exp === 'number' ? data.exp : Math.floor(Date.now() / 1000) + 3600,
+            epoch: typeof data.epoch === 'number' ? data.epoch : 0,
+            issuerId: typeof metadata.issuer_id === 'string' ? metadata.issuer_id : ''
+          });
           console.log(`[Freebird] ✅ VOPRF token issued and verified from ${url}`);
-          return tokenBytes;
+          return rawToken;
 
         } catch (error) {
           this.warningOnce(
@@ -402,17 +416,24 @@ export class FreebirdAdapter implements FreebirdClient {
       throw new Error('Token verification failed: no verifier URL configured');
     }
 
-    // Use first issuer's metadata for verification
+    // Prefer metadata captured from issueToken response for this token.
+    const tokenMetadata = this.issuedTokenMetadata.get(Crypto.toHex(token));
     const firstMetadata = Array.from(this.metadata.values())[0];
+    const issuerId =
+      tokenMetadata?.issuerId ||
+      (typeof firstMetadata?.issuer_id === 'string' ? firstMetadata.issuer_id : '');
+    const exp = tokenMetadata?.exp ?? (Math.floor(Date.now() / 1000) + 3600);
+    const epoch = tokenMetadata?.epoch ??
+      (typeof firstMetadata?.epoch === 'number' ? firstMetadata.epoch : 0);
 
     const response = await this.fetch(`${this.verifierUrl}/v1/verify`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         token_b64: voprf.bytesToBase64Url(token),
-        issuer_id: firstMetadata.issuer_id,
-        exp: Math.floor(Date.now() / 1000) + 3600,
-        epoch: firstMetadata.epoch || 0  // Key rotation epoch
+        issuer_id: issuerId,
+        exp,
+        epoch
       })
     });
 
@@ -562,5 +583,37 @@ export class FreebirdAdapter implements FreebirdClient {
       bytes[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
     }
     return bytes;
+  }
+
+  private parseIssuerToken(tokenBytes: Uint8Array): {
+    rawToken: Uint8Array;
+    voprfToken: Uint8Array;
+    pointOffset: 0 | 1;
+  } | null {
+    // Supported raw lengths:
+    // - 130: [A(33)|B(33)|proof(64)] legacy
+    // - 131: [version|A(33)|B(33)|proof(64)] current VOPRF
+    // - 194: 130 + signature(64)
+    // - 195: 131 + signature(64)
+    let voprfLen: 130 | 131;
+    if (tokenBytes.length === 130 || tokenBytes.length === 194) {
+      voprfLen = 130;
+    } else if (tokenBytes.length === 131 || tokenBytes.length === 195) {
+      voprfLen = 131;
+    } else {
+      return null;
+    }
+
+    const voprfToken = tokenBytes.slice(0, voprfLen);
+    if (voprfLen === 130) {
+      return { rawToken: tokenBytes, voprfToken, pointOffset: 0 };
+    }
+
+    // Versioned layout uses 1-byte token format prefix.
+    const version = voprfToken[0];
+    if (version !== 0x01 && version !== 0x02) {
+      return null;
+    }
+    return { rawToken: tokenBytes, voprfToken, pointOffset: 1 };
   }
 }
