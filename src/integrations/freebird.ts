@@ -50,7 +50,6 @@ export class FreebirdAdapter implements FreebirdClient {
   private readonly allowInsecureFallback: boolean;
   private metadata: Map<string, any> = new Map();
   private blindStates: Map<string, BlindState> = new Map();
-  private issuedTokenMetadata = new Map<string, { exp: number; epoch: number; issuerId: string }>();
   private noIssuersWarningLogged = false;
   private warningKeys = new Set<string>();
 
@@ -204,8 +203,9 @@ export class FreebirdAdapter implements FreebirdClient {
    *
    * Process:
    * 1. Try each configured issuer sequentially until one succeeds
-   * 2. Verify DLEQ proof to ensure correct evaluation
-   * 3. Return the verified token from that issuer
+   * 2. Verify DLEQ proof and unblind to get PRF output
+   * 3. Build V3 redemption token (self-contained)
+   * 4. Return the V3 token bytes
    *
    * Multiple issuers provide redundancy - if one is unavailable, others are tried.
    * For multi-issuer trust requirements, configure TrustPolicy on the verifier.
@@ -243,48 +243,39 @@ export class FreebirdAdapter implements FreebirdClient {
 
           const data = await response.json();
 
-          // Extract VOPRF token from issuer response.
-          // Supports legacy (130) and versioned (131) VOPRF tokens, and
-          // signature-appended variants (194/195).
-          const tokenBytes = this.base64UrlToBytes(data.token);
-          const parsedToken = this.parseIssuerToken(tokenBytes);
-          if (!parsedToken) {
-            console.warn(`[Freebird] Invalid token length from ${url}, trying next`);
-            continue;
-          }
-          const { rawToken, voprfToken, pointOffset } = parsedToken;
-
-          // Extract A, B, and proof from VOPRF portion
-          const A_bytes = voprfToken.slice(pointOffset, pointOffset + 33);
-          const B_bytes = voprfToken.slice(pointOffset + 33, pointOffset + 66);
-          const proofBytes = voprfToken.slice(pointOffset + 66);
-          if (A_bytes.length !== 33 || B_bytes.length !== 33 || proofBytes.length !== 64) {
-            console.warn(`[Freebird] Invalid VOPRF token layout from ${url}, trying next`);
+          // Verify DLEQ proof and unblind via voprf.finalize()
+          // Returns 32-byte PRF output
+          let output: Uint8Array;
+          try {
+            output = voprf.finalize(
+              state,
+              data.token,
+              metadata.voprf.pubkey,
+              this.context
+            );
+          } catch (e) {
+            console.warn(`[Freebird] DLEQ verification/unblinding failed from ${url}: ${this.summarizeError(e)}, trying next`);
             continue;
           }
 
-          // Verify DLEQ proof
-          const G = p256.ProjectivePoint.BASE;
-          const Q = this.decodePublicKey(metadata.voprf.pubkey);
-          const A = this.decodePoint(A_bytes);
-          const B = this.decodePoint(B_bytes);
+          // Build V3 redemption token (self-contained wire format)
+          const sig = this.base64UrlToBytes(data.sig);
+          const kid = data.kid ?? metadata.voprf.kid;
+          const exp = typeof data.exp === 'number' ? data.exp : Math.floor(Date.now() / 1000) + 3600;
+          const issuerId = data.issuer_id ?? metadata.issuer_id ?? '';
 
-          const isValid = this.verifyDleqExternal(G, Q, A, B, proofBytes);
+          const redemptionToken = voprf.buildRedemptionToken(
+            output,
+            kid,
+            BigInt(exp),
+            issuerId,
+            sig
+          );
 
-          if (!isValid) {
-            console.warn(`[Freebird] Invalid DLEQ proof from ${url}, trying next`);
-            continue;
-          }
-
-          // Success! Clean up and return the verified token
+          // Success! Clean up and return the V3 token
           this.blindStates.delete(blindedHex);
-          this.issuedTokenMetadata.set(Crypto.toHex(rawToken), {
-            exp: typeof data.exp === 'number' ? data.exp : Math.floor(Date.now() / 1000) + 3600,
-            epoch: typeof data.epoch === 'number' ? data.epoch : 0,
-            issuerId: typeof metadata.issuer_id === 'string' ? metadata.issuer_id : ''
-          });
-          console.log(`[Freebird] ✅ VOPRF token issued and verified from ${url}`);
-          return rawToken;
+          console.log(`[Freebird] ✅ VOPRF token issued, verified, and unblinded from ${url}`);
+          return redemptionToken;
 
         } catch (error) {
           this.warningOnce(
@@ -327,70 +318,6 @@ export class FreebirdAdapter implements FreebirdClient {
     return Uint8Array.from(binString, (m) => m.codePointAt(0)!);
   }
 
-  /**
-   * Helper to decode a point from compressed bytes
-   */
-  private decodePoint(bytes: Uint8Array): any {
-    return p256.ProjectivePoint.fromHex(bytesToHex(bytes));
-  }
-
-  /**
-   * Helper to decode public key from base64url
-   */
-  private decodePublicKey(pubkeyB64: string): any {
-    return this.decodePoint(this.base64UrlToBytes(pubkeyB64));
-  }
-
-  /**
-   * External DLEQ verification (duplicated from voprf.ts for internal use)
-   * TODO: Refactor to export this from voprf.ts
-   */
-  private verifyDleqExternal(G: any, Y: any, A: any, B: any, proofBytes: Uint8Array): boolean {
-
-    if (proofBytes.length !== 64) return false;
-
-    const cBytes = proofBytes.slice(0, 32);
-    const sBytes = proofBytes.slice(32, 64);
-    const c = BigInt('0x' + bytesToHex(cBytes));
-    const s = BigInt('0x' + bytesToHex(sBytes));
-
-    // Recompute commitments
-    const sG = G.multiply(s);
-    const cY = Y.multiply(c);
-    const t1 = sG.subtract(cY);
-
-    const sA = A.multiply(s);
-    const cB = B.multiply(c);
-    const t2 = sA.subtract(cB);
-
-    // Recompute challenge
-    const DLEQ_DST_PREFIX = new TextEncoder().encode('DLEQ-P256-v1');
-    const dst = concatBytes(DLEQ_DST_PREFIX, this.context);
-    const dstLenBytes = new Uint8Array(4);
-    const dstLen = dst.length;
-    dstLenBytes[0] = (dstLen >>> 24) & 0xff;
-    dstLenBytes[1] = (dstLen >>> 16) & 0xff;
-    dstLenBytes[2] = (dstLen >>> 8) & 0xff;
-    dstLenBytes[3] = dstLen & 0xff;
-
-    const encodePoint = (p: any) => p.toRawBytes(true);
-
-    const transcript = concatBytes(
-      dstLenBytes,
-      dst,
-      encodePoint(G),
-      encodePoint(Y),
-      encodePoint(A),
-      encodePoint(B),
-      encodePoint(t1),
-      encodePoint(t2)
-    );
-
-    const hash = sha256(transcript);
-    const computedC = BigInt('0x' + bytesToHex(hash)) % p256.CURVE.n;
-
-    return c === computedC;
-  }
 
   /**
    * Verify an authorization token
@@ -416,24 +343,12 @@ export class FreebirdAdapter implements FreebirdClient {
       throw new Error('Token verification failed: no verifier URL configured');
     }
 
-    // Prefer metadata captured from issueToken response for this token.
-    const tokenMetadata = this.issuedTokenMetadata.get(Crypto.toHex(token));
-    const firstMetadata = Array.from(this.metadata.values())[0];
-    const issuerId =
-      tokenMetadata?.issuerId ||
-      (typeof firstMetadata?.issuer_id === 'string' ? firstMetadata.issuer_id : '');
-    const exp = tokenMetadata?.exp ?? (Math.floor(Date.now() / 1000) + 3600);
-    const epoch = tokenMetadata?.epoch ??
-      (typeof firstMetadata?.epoch === 'number' ? firstMetadata.epoch : 0);
-
+    // V3 tokens are self-contained — verifier only needs the token itself
     const response = await this.fetch(`${this.verifierUrl}/v1/verify`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         token_b64: voprf.bytesToBase64Url(token),
-        issuer_id: issuerId,
-        exp,
-        epoch
       })
     });
 
@@ -585,35 +500,4 @@ export class FreebirdAdapter implements FreebirdClient {
     return bytes;
   }
 
-  private parseIssuerToken(tokenBytes: Uint8Array): {
-    rawToken: Uint8Array;
-    voprfToken: Uint8Array;
-    pointOffset: 0 | 1;
-  } | null {
-    // Supported raw lengths:
-    // - 130: [A(33)|B(33)|proof(64)] legacy
-    // - 131: [version|A(33)|B(33)|proof(64)] current VOPRF
-    // - 194: 130 + signature(64)
-    // - 195: 131 + signature(64)
-    let voprfLen: 130 | 131;
-    if (tokenBytes.length === 130 || tokenBytes.length === 194) {
-      voprfLen = 130;
-    } else if (tokenBytes.length === 131 || tokenBytes.length === 195) {
-      voprfLen = 131;
-    } else {
-      return null;
-    }
-
-    const voprfToken = tokenBytes.slice(0, voprfLen);
-    if (voprfLen === 130) {
-      return { rawToken: tokenBytes, voprfToken, pointOffset: 0 };
-    }
-
-    // Versioned layout uses 1-byte token format prefix.
-    const version = voprfToken[0];
-    if (version !== 0x01 && version !== 0x02) {
-      return null;
-    }
-    return { rawToken: tokenBytes, voprfToken, pointOffset: 1 };
-  }
 }

@@ -6,8 +6,14 @@ import * as P256 from './p256.js';
 // Constants from Rust implementation
 const DLEQ_DST_PREFIX = new TextEncoder().encode('DLEQ-P256-v1');
 const COMPRESSED_POINT_LEN = 33;
+const TOKEN_VERSION_V1 = 0x01;
+const TOKEN_VERSION_LEN = 1;
+const TOKEN_SIGNATURE_LEN = 64;
 const PROOF_LEN = 64; // 32 bytes (c) + 32 bytes (s)
-const TOKEN_LEN = COMPRESSED_POINT_LEN * 2 + PROOF_LEN;
+const RAW_TOKEN_LEN_V0 = COMPRESSED_POINT_LEN * 2 + PROOF_LEN; // 130 (legacy, no version byte)
+const RAW_TOKEN_LEN_V1 = TOKEN_VERSION_LEN + COMPRESSED_POINT_LEN * 2 + PROOF_LEN; // 131
+const TOKEN_LEN_V2 = RAW_TOKEN_LEN_V1 + TOKEN_SIGNATURE_LEN; // 195 (VOPRF + signature)
+const REDEMPTION_TOKEN_VERSION_V3 = 0x03;
 
 /**
  * Internal state maintained between blinding and unblinding.
@@ -42,11 +48,11 @@ export function blind(
 }
 
 /**
- * Verifies the issuer's response and returns the token.
+ * Verifies the issuer's response, unblinds, and returns the 32-byte PRF output.
  * Corresponds to Rust: Client::finalize
  *
- * Note: In Freebird v0.1.0, the "token" is the (A, B, Proof) tuple itself,
- * not the unblinded value. This enables stateless verification.
+ * Returns the unblinded PRF output: SHA-256("VOPRF-P256-SHA256:Finalize" || ctx || W)
+ * where W = B * r^(-1) is the unblinded evaluated point.
  */
 export function finalize(
   state: BlindState,
@@ -55,17 +61,34 @@ export function finalize(
   context: Uint8Array
 ): Uint8Array {
   // 1. Decode inputs
-  const tokenBytes = base64UrlToBytes(tokenB64);
+  const fullTokenBytes = base64UrlToBytes(tokenB64);
   const pubkeyBytes = base64UrlToBytes(issuerPubkeyB64);
+  const tokenBytes =
+    fullTokenBytes.length === TOKEN_LEN_V2
+      ? fullTokenBytes.slice(0, RAW_TOKEN_LEN_V1)
+      : fullTokenBytes;
 
-  if (tokenBytes.length !== TOKEN_LEN) {
-    throw new Error(`Invalid token length: expected ${TOKEN_LEN}, got ${tokenBytes.length}`);
+  if (
+    tokenBytes.length !== RAW_TOKEN_LEN_V1 &&
+    tokenBytes.length !== RAW_TOKEN_LEN_V0
+  ) {
+    throw new Error(
+      `Invalid token length: expected one of ${RAW_TOKEN_LEN_V0}, ${RAW_TOKEN_LEN_V1}, ${TOKEN_LEN_V2}; got ${fullTokenBytes.length}`
+    );
   }
 
-  // 2. Parse Token Structure: [ A (33) | B (33) | Proof (64) ]
-  const A_bytes = tokenBytes.slice(0, COMPRESSED_POINT_LEN);
-  const B_bytes = tokenBytes.slice(COMPRESSED_POINT_LEN, COMPRESSED_POINT_LEN * 2);
-  const proofBytes = tokenBytes.slice(COMPRESSED_POINT_LEN * 2);
+  const offset = tokenBytes.length === RAW_TOKEN_LEN_V1 ? TOKEN_VERSION_LEN : 0;
+  if (offset === TOKEN_VERSION_LEN && tokenBytes[0] !== TOKEN_VERSION_V1) {
+    throw new Error(`Unsupported token version: ${tokenBytes[0]}`);
+  }
+
+  // 2. Parse Token Structure: [version? | A (33) | B (33) | Proof (64)]
+  const A_bytes = tokenBytes.slice(offset, offset + COMPRESSED_POINT_LEN);
+  const B_bytes = tokenBytes.slice(
+    offset + COMPRESSED_POINT_LEN,
+    offset + COMPRESSED_POINT_LEN * 2
+  );
+  const proofBytes = tokenBytes.slice(offset + COMPRESSED_POINT_LEN * 2);
 
   // 3. Decode Points
   const A = P256.decodePoint(A_bytes);
@@ -74,15 +97,85 @@ export function finalize(
   const G = p256.ProjectivePoint.BASE;
 
   // 4. Verify DLEQ Proof
-  // Proves that log_G(Q) == log_A(B) (i.e., Issuer used the same private key)
   const isValid = verifyDleq(G, Q, A, B, proofBytes, context);
 
   if (!isValid) {
     throw new Error('VOPRF verification failed: Invalid DLEQ proof from issuer');
   }
 
-  // 5. Return the verified token bytes
-  return tokenBytes;
+  // 5. Unblind: W = B * r^(-1)
+  const rInv = P256.invertScalar(state.r);
+  const W = P256.multiply(B, rInv);
+
+  // 6. Derive PRF output from unblinded point
+  const wBytes = P256.encodePoint(W); // SEC1 compressed, 33 bytes
+  const finalizeInput = concatBytes(
+    new TextEncoder().encode('VOPRF-P256-SHA256:Finalize'),
+    context,
+    wBytes,
+  );
+  const output = sha256(finalizeInput); // 32 bytes
+
+  return output;
+}
+
+/**
+ * Builds a V3 redemption token for wire transmission.
+ * Format: [version(1) | output(32) | kid_len(1) | kid(var) | exp(8) | issuer_id_len(1) | issuer_id(var) | sig(64)]
+ */
+export function buildRedemptionToken(
+  output: Uint8Array,  // 32 bytes (PRF output from finalize)
+  kid: string,
+  exp: bigint,         // i64
+  issuerId: string,
+  sig: Uint8Array      // 64 bytes
+): Uint8Array {
+  const kidBytes = new TextEncoder().encode(kid);
+  const issuerIdBytes = new TextEncoder().encode(issuerId);
+  if (kidBytes.length === 0 || kidBytes.length > 255) throw new Error('kid must be 1-255 bytes');
+  if (issuerIdBytes.length === 0 || issuerIdBytes.length > 255) throw new Error('issuer_id must be 1-255 bytes');
+
+  const buf = new Uint8Array(1 + 32 + 1 + kidBytes.length + 8 + 1 + issuerIdBytes.length + 64);
+  let pos = 0;
+  buf[pos++] = REDEMPTION_TOKEN_VERSION_V3;
+  buf.set(output, pos); pos += 32;
+  buf[pos++] = kidBytes.length;
+  buf.set(kidBytes, pos); pos += kidBytes.length;
+  const expView = new DataView(buf.buffer, buf.byteOffset + pos, 8);
+  expView.setBigInt64(0, exp);
+  pos += 8;
+  buf[pos++] = issuerIdBytes.length;
+  buf.set(issuerIdBytes, pos); pos += issuerIdBytes.length;
+  buf.set(sig, pos);
+  return buf;
+}
+
+/**
+ * Parses a V3 redemption token from wire bytes.
+ */
+export function parseRedemptionToken(bytes: Uint8Array): {
+  output: Uint8Array;
+  kid: string;
+  exp: bigint;
+  issuerId: string;
+  sig: Uint8Array;
+} {
+  if (bytes.length < 109 || bytes.length > 512) throw new Error('invalid token length');
+  if (bytes[0] !== REDEMPTION_TOKEN_VERSION_V3) throw new Error('unsupported token version');
+  let pos = 1;
+  const output = bytes.slice(pos, pos + 32); pos += 32;
+  const kidLen = bytes[pos++];
+  if (kidLen === 0 || pos + kidLen > bytes.length) throw new Error('invalid kid_len');
+  const kid = new TextDecoder().decode(bytes.slice(pos, pos + kidLen)); pos += kidLen;
+  if (pos + 8 > bytes.length) throw new Error('truncated');
+  const expView = new DataView(bytes.buffer, bytes.byteOffset + pos, 8);
+  const exp = expView.getBigInt64(0); pos += 8;
+  const issuerIdLen = bytes[pos++];
+  if (issuerIdLen === 0 || pos + issuerIdLen > bytes.length) throw new Error('invalid issuer_id_len');
+  const issuerId = new TextDecoder().decode(bytes.slice(pos, pos + issuerIdLen)); pos += issuerIdLen;
+  if (bytes.length - pos !== 64) throw new Error('invalid sig length');
+  const sig = bytes.slice(pos, pos + 64);
+  return { output, kid, exp, issuerId, sig };
 }
 
 /**
