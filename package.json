@@ -1,7 +1,7 @@
 {
   "name": "scarcity",
-  "version": "0.2.0",
-  "description": "Privacy-preserving P2P value transfer protocol with gossip-based double-spend prevention",
+  "version": "0.3.0",
+  "description": "Chaumian e-cash with blind signatures, nullifier gossip, and lazy demurrage",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

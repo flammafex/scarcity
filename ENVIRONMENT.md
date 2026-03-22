@@ -2,7 +2,7 @@
 
 <div align=center>
 
-**Scarcity: Zero-Mining, Near-Zero Energy Cryptocurrency**
+**Scarcity: Zero-Mining, Near-Zero Energy E-Cash**
 
 *Achieving double-spend prevention without destroying the planet*
 
@@ -337,13 +337,14 @@ It does NOT scale with:
 
 ### Q: Is this just centralization in disguise?
 
-**A:** No. Scarcity is **serverless**:
+**A:** Scarcity follows the Chaumian e-cash model: it requires **trusted mints** (Freebird issuers) and **Witness gateways** — these are real servers operated by real parties. That's not centralization in disguise; it's the explicit design.
 
-- Anyone can run a peer (gossip)
-- Anyone can run a Witness node (threshold federation)
-- No privileged parties, no gatekeepers
+- Anyone can run a **mint** (Freebird issuer) — no permission needed
+- Anyone can run a **Witness node** (threshold federation)
+- Anyone can run a **peer** (gossip network)
+- **Vendors choose which mints to trust**, just as merchants choose which banks to accept
 
-The efficiency comes from **not requiring global consensus**, not from centralization.
+The efficiency comes from **not requiring global consensus**, not from being serverless. Scarcity eliminates the most expensive part of traditional cryptocurrencies (global ledger agreement) while being honest about the infrastructure it does require.
 
 ---
 
@@ -389,7 +390,7 @@ Frequency: Once per anonymous token issuance
 
 ## Conclusion
 
-Scarcity proves that **cryptocurrency does not require environmental destruction**.
+Scarcity proves that **digital cash does not require environmental destruction**.
 
 By rejecting the assumption that global consensus is necessary, Scarcity achieves:
 
@@ -398,7 +399,7 @@ By rejecting the assumption that global consensus is necessary, Scarcity achieve
 - ✅ **Zero global ledger** (no state synchronization)
 - ✅ **Near-zero energy** (comparable to messaging)
 
-**The result:** A privacy-preserving, serverless, zero-cost cryptocurrency with the environmental footprint of a web application.
+**The result:** A privacy-preserving, zero-cost e-cash system with the environmental footprint of a web application.
 
 ---
 

@@ -10,7 +10,7 @@ Scarcity implements a **zero-cost, anti-accumulation** monetary system inspired 
 
 **No fees. No gas. No mining rewards. No staking.**
 
-Traditional cryptocurrencies impose costs on every transaction:
+Traditional digital currencies impose costs on every transaction:
 - Bitcoin: Mining fees (~$1-50 per transaction)
 - Ethereum: Gas fees (variable, often $1-100+)
 - Most L2s: Still have fees, just smaller
@@ -130,7 +130,7 @@ Silvio Gesell (1862-1930) proposed **Freigeld** (free money) with built-in demur
 |----------|----------|---------|---------------|
 | **Transaction Cost** | Zero | High (mining fees) | Low-Medium (bank fees) |
 | **Holding Cost** | Demurrage (~0.2%/month effective) | Zero | Inflation (~2-10%/year) |
-| **Supply** | Federated issuance | Fixed (21M cap) | Central bank discretion |
+| **Supply** | Mint-controlled (auditable via Witness) | Fixed (21M cap) | Central bank discretion |
 | **Accumulation** | Discouraged | Encouraged | Depends on interest rates |
 | **Privacy** | Unlinkable transfers | Pseudonymous (linkable) | Surveilled |
 | **Finality** | Probabilistic (seconds) | Probabilistic (hours) | Varies |
@@ -220,15 +220,15 @@ The ~576 day default balances:
 
 ---
 
-## Federation Economics
+## Mint Economics
 
-Scarcity operates within **federations** - groups of infrastructure operators running Freebird (issuance), Witness (timestamping), and HyperToken (networking).
+Scarcity is **Chaumian e-cash**: tokens are issued by a mint (the Freebird issuer), blind-signed so the mint cannot link issuance to spending, and bearer-transferable. Each mint is an independent monetary authority.
 
 ### Issuance Control
 
-- Federations control token issuance via Freebird
-- MPC threshold prevents single-party inflation
-- Different federations can have different policies
+- The mint controls token supply and sets issuance policy
+- MPC threshold signing splits the mint key across operators for security against compromise — but the operators collectively decide monetary policy
+- Different mints can have different policies (supply caps, issuance rates, Sybil requirements)
 
 ### Sybil Resistance
 
@@ -249,22 +249,23 @@ SYBIL_COMBINED_MECHANISMS=progressive_trust,proof_of_diversity
 **Why this matters:**
 - Prevents inflation attacks (mass token creation)
 - Prevents spam attacks (flooding network with transfers)
-- Maintains scarcity without artificial caps
+- Enforces the mint's supply policy
 - Aligns with progressive trust philosophy
 
 See [SECURITY.md](SECURITY.md) for technical details.
 
-### No Central Bank
+### The Mint as Monetary Authority
 
-- No single entity controls supply
-- No monetary policy decisions
-- Issuance is algorithmic or policy-based per federation
+- The mint **does** control supply and **does** make monetary policy decisions — this is the Chaumian model
+- MPC splits the signing key for operational security, not to decentralize policy; the operators are the mint
+- Witness makes issuance auditable: anyone can verify total supply and issuance rate against the mint's stated policy
+- Vendors and users choose which mints to trust, creating market discipline — a dishonest mint loses acceptance
 
-### Cross-Federation
+### Cross-Mint
 
-- Bridge protocol enables transfers between federations
+- Bridge protocol enables transfers between mints
 - Atomic swaps via HTLCs
-- Federations can have different trust models
+- Mints can have different trust models and policies
 
 ---
 
@@ -286,7 +287,7 @@ Scarcity embodies several philosophical positions:
 
 - Silvio Gesell, *The Natural Economic Order* (1916)
 - Bernard Lietaer, *The Future of Money* (2001)
-- [Freicoin](http://freico.in/) - Earlier demurrage cryptocurrency
+- [Freicoin](http://freico.in/) - Earlier demurrage digital currency
 - [Circles UBI](https://joincircles.net/) - Demurrage with basic income
 
 ---

@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Scarcity - Chaumian e-cash with blind signatures, nullifier gossip, and lazy demurrage. Cash that bleeds.">
+  <meta name="theme-color" content="#8B0000">
+  <title>SCARCITY - Cash That Bleeds</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🩸</text></svg>">
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <script>
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: 'base',
+      themeVariables: {
+        primaryColor: '#171312',
+        primaryTextColor: '#e84040',
+        primaryBorderColor: '#6b2a2a',
+        lineColor: '#c43030',
+        secondaryColor: '#0f0d0c',
+        tertiaryColor: '#080706',
+        background: '#080706',
+        mainBkg: '#171312',
+        nodeBorder: '#6b2a2a',
+        clusterBkg: '#0f0d0c',
+        clusterBorder: '#2a1010',
+        titleColor: '#e84040',
+        edgeLabelBackground: '#080706',
+        nodeTextColor: '#e84040',
+        actorTextColor: '#d4cbc0',
+        actorLineColor: '#6b2a2a',
+        signalColor: '#c43030',
+        signalTextColor: '#d4cbc0',
+        labelTextColor: '#d4cbc0',
+        loopTextColor: '#d4cbc0',
+        noteBorderColor: '#6b2a2a',
+        noteBkgColor: '#171312',
+        noteTextColor: '#d4cbc0',
+        fontFamily: 'IBM Plex Mono, monospace'
+      },
+      flowchart: {
+        curve: 'basis',
+        padding: 20,
+        nodeSpacing: 50,
+        rankSpacing: 60,
+        htmlLabels: true
+      }
+    });
+  </script>
+</head>
+<body>
+  <div class="container">
+    <!-- HERO -->
+    <section class="hero">
+      <pre class="ascii-border">
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                                                                              ║</pre>
+      <div class="logo-container">
+        <img src="church.png" width=64 alt="The Carpocratian Church presents">
+        <p>The Carpocratian Church of<br>
+    Commonality & Equality<br><br>
+    Presents<br></p>
+    </div>
+      <div class="logo-container">
+        <img src="scarcity.webp" alt="Scarcity" class="logo">
+      </div>
+
+      <div class="tagline">CASH THAT BLEEDS</div>
+      <div class="subtitle">Private · Bearer · Unlinkable</div>
+      <div class="logo-container">
+         <img src="scarbucks.webp" alt="Scarbucks.com" class="logo">
+      </div>
+      <pre class="ascii-border">
+║                                                                              ║
+╚══════════════════════════════════════════════════════════════════════════════╝</pre>
+    </section>
+
+    <!-- WHAT IS IT -->
+    <section class="section">
+      <div class="section-header">
+        <h2>What Is Scarcity?</h2>
+      </div>
+
+      <div class="content">
+        <p>Chaumian e-cash for the internet. Blind-signed bearer tokens with double-spend prevention &mdash; no blockchains, no mining, no global ledgers.</p>
+        <ul>
+          <li><span class="highlight">Blind signatures</span> &mdash; issuer signs without seeing what they sign</li>
+          <li><span class="highlight">Bearer tokens</span> &mdash; possession is ownership, no addresses</li>
+          <li><span class="highlight">Unlinkable</span> &mdash; issuance and spending cannot be correlated</li>
+          <li><span class="highlight">No blockchain</span> &mdash; nullifier gossip + threshold timestamps</li>
+          <li><span class="highlight">No fees</span> &mdash; zero-cost transfers</li>
+          <li><span class="highlight">Issuer-as-mint</span> &mdash; you choose which mints to trust</li>
+        </ul>
+        <p class="dim">The Chaumian model: the protocol guarantees privacy and double-spend detection. The mint establishes policy. Vendors choose which mints they accept &mdash; just as merchants choose which banks' cards they take.</p>
+      </div>
+
+      <pre class="ascii-border">
+╚══════════════════════════════════════════════════════════════════════════════╝</pre>
+    </section>
+
+    <!-- LAZY DEMURRAGE -->
+    <section class="section">
+      <div class="section-header">
+        <h2>Lazy Demurrage: Money That Metabolizes</h2>
+      </div>
+
+      <div class="content">
+        <p>Tokens have a <span class="highlight">validity window</span> (~1.5 years). If not transferred before expiry, they die.</p>
+
+        <div class="decay-demo">
+          <div class="decay-visual">
+            <div class="decay-bar-container">
+              <div class="decay-bar" id="demo-decay" style="width: 100%"></div>
+            </div>
+            <div class="decay-label">TOKEN LIFESPAN</div>
+          </div>
+        </div>
+
+        <p>This isn't a bug. It's the point:</p>
+        <ul>
+          <li><span class="highlight">Anti-hoarding</span> &mdash; use it or lose it</li>
+          <li><span class="highlight">Self-pruning</span> &mdash; lost keys don't haunt the network forever</li>
+          <li><span class="highlight">High velocity</span> &mdash; money that circulates</li>
+        </ul>
+        <p class="dim">Based on Silvio Gesell's "Freigeld" and the W&ouml;rgl experiment (1932).</p>
+      </div>
+
+      <pre class="ascii-border">
+╚══════════════════════════════════════════════════════════════════════════════╝</pre>
+    </section>
+
+<!-- HOW IT WORKS -->
+    <section class="section">
+      <div class="section-header">
+        <h2>How It Works</h2>
+      </div>
+
+      <div class="content">
+        <div class="transfer-infograph">
+          <div class="infograph-flow">
+            <div class="mermaid-container">
+              <pre class="mermaid">
+flowchart TD
+    A[/"<b>TOKEN</b>"/]
+    A --> B["<b>1</b>"]
+    B --> C["<b>2</b>"]
+    C --> D["<b>3</b>"]
+    D --> E["<b>4</b>"]
+    E --> F["<b>5</b>"]
+    F --> G[/"<b>DONE</b>"/]
+              </pre>
+            </div>
+          </div>
+
+          <div class="infograph-definitions">
+            <div class="step-def" data-step="1">
+              <div class="step-num">1</div>
+              <div class="step-content">
+                <div class="step-title">NULLIFIER</div>
+                <div class="step-formula">SHA-256(secret || tokenId)</div>
+                <div class="step-desc">A unique "spend marker" derived from your token's secret. Publishing it proves you spent the token without revealing which token you hold. Same token = same nullifier = caught double-spend.</div>
+              </div>
+            </div>
+
+            <div class="step-def" data-step="2">
+              <div class="step-num">2</div>
+              <div class="step-content">
+                <div class="step-title">VOPRF BLINDING</div>
+                <div class="step-formula">Freebird &middot; P-256 &middot; RFC 9497</div>
+                <div class="step-desc">Verifiable Oblivious Pseudo-Random Function. The mint signs your blinded request without learning what they signed. You unblind to get a valid authorization token. They approved you but can't trace you.</div>
+              </div>
+            </div>
+
+            <div class="step-def" data-step="3">
+              <div class="step-num">3</div>
+              <div class="step-content">
+                <div class="step-title">OWNERSHIP PROOF</div>
+                <div class="step-formula">Schnorr signature &middot; DLEQ</div>
+                <div class="step-desc">A zero-knowledge proof binding your nullifier to the transfer. Proves you know the token's secret without revealing it. Cryptographically commits you to this specific transaction.</div>
+              </div>
+            </div>
+
+            <div class="step-def" data-step="4">
+              <div class="step-num">4</div>
+              <div class="step-content">
+                <div class="step-title">WITNESS TIMESTAMP</div>
+                <div class="step-formula">BLS12-381 &middot; threshold 3-of-5</div>
+                <div class="step-desc">A federation of independent witnesses. Each signs your nullifier+timestamp. Aggregate 3 signatures into 1 compact proof. Establishes canonical ordering without a blockchain. Optionally anchored to Ethereum for tamper-proof auditability.</div>
+              </div>
+            </div>
+
+            <div class="step-def" data-step="5">
+              <div class="step-num">5</div>
+              <div class="step-content">
+                <div class="step-title">GOSSIP BROADCAST</div>
+                <div class="step-formula">P2P &middot; epidemic protocol</div>
+                <div class="step-desc">Your nullifier propagates through the network like a rumor. Peers cache seen nullifiers. Second appearance = double-spend attempt. Fast detection (~50ms) with eventual consistency.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="detection-summary">
+          <div class="detection-title">DOUBLE-SPEND DETECTION</div>
+          <div class="detection-paths">
+            <span class="highlight">Fast path</span> gossip network (~50ms) &middot;
+            <span class="highlight">Witness path</span> federation query (deterministic) &middot;
+            <span class="highlight">Confidence scoring</span> tunable risk tolerance
+          </div>
+        </div>
+      </div>
+
+      <pre class="ascii-border">
+╚══════════════════════════════════════════════════════════════════════════════╝</pre>
+    </section>
+
+    <!-- THREE PILLARS -->
+    <section class="section">
+      <div class="section-header">
+        <h2>The Three Pillars</h2>
+      </div>
+
+      <div class="pillars">
+        <div class="pillar">
+          <div class="pillar-title">FREEBIRD</div>
+          <div class="pillar-subtitle">The Mint</div>
+          <ul>
+            <li>P-256 VOPRF blind signatures (RFC 9497)</li>
+            <li>DLEQ proof verification</li>
+            <li>Schnorr ownership proofs</li>
+            <li>Issuer controls token policy</li>
+          </ul>
+          <a href="https://github.com/flammafex/freebird" class="pillar-link">github.com/flammafex/freebird</a>
+        </div>
+
+        <div class="pillar">
+          <div class="pillar-title">WITNESS</div>
+          <div class="pillar-subtitle">The Notary</div>
+          <ul>
+            <li>BLS12-381 threshold signatures</li>
+            <li>Canonical ordering without blockchain</li>
+            <li>Ethereum anchoring for auditability</li>
+            <li>Anti-censorship federation design</li>
+          </ul>
+          <a href="https://github.com/flammafex/witness" class="pillar-link">github.com/flammafex/witness</a>
+        </div>
+
+        <div class="pillar">
+          <div class="pillar-title">HYPERTOKEN</div>
+          <div class="pillar-subtitle">The Network</div>
+          <ul>
+            <li>WebSocket relay + WebRTC upgrade</li>
+            <li>Gossip-based nullifier propagation</li>
+            <li>Peer reputation scoring</li>
+            <li>E2E encryption (ECDH + AES-256-GCM)</li>
+          </ul>
+          <a href="https://github.com/flammafex/hypertoken" class="pillar-link">github.com/flammafex/hypertoken</a>
+        </div>
+      </div>
+
+      <pre class="ascii-border">
+╚══════════════════════════════════════════════════════════════════════════════╝</pre>
+    </section>
+
+    <!-- TRUST MODEL -->
+    <section class="section">
+      <div class="section-header">
+        <h2>Trust Model</h2>
+      </div>
+
+      <div class="content">
+        <p>Scarcity follows the <span class="highlight">Chaumian model</span>: the protocol provides cryptographic guarantees. The mint establishes economic policy.</p>
+
+        <div class="feature-grid">
+          <div class="feature">
+            <span class="feature-name">PROTOCOL</span>
+            <span class="feature-desc">Privacy, unlinkability, double-spend detection</span>
+          </div>
+          <div class="feature">
+            <span class="feature-name">MINT</span>
+            <span class="feature-desc">Who can issue, how much, backed by what</span>
+          </div>
+          <div class="feature">
+            <span class="feature-name">WITNESS</span>
+            <span class="feature-desc">Ordering, auditability, tamper-proof history</span>
+          </div>
+          <div class="feature">
+            <span class="feature-name">VENDOR</span>
+            <span class="feature-desc">Chooses which mints to accept</span>
+          </div>
+        </div>
+
+        <p class="dim">The software doesn't enforce supply limits &mdash; the mint does. This is by design: monetary policy belongs to institutions, not protocols. Witness attestations (optionally anchored to Ethereum) make that policy auditable.</p>
+      </div>
+
+      <pre class="ascii-border">
+╚══════════════════════════════════════════════════════════════════════════════╝</pre>
+    </section>
+
+    <!-- ADVANCED FEATURES -->
+    <section class="section">
+      <div class="section-header">
+        <h2>Advanced Operations</h2>
+      </div>
+
+      <div class="content">
+        <div class="feature-grid">
+          <div class="feature">
+            <span class="feature-name">SPLIT</span>
+            <span class="feature-desc">Divide token into multiple smaller tokens</span>
+          </div>
+          <div class="feature">
+            <span class="feature-name">MERGE</span>
+            <span class="feature-desc">Combine multiple tokens into one</span>
+          </div>
+          <div class="feature">
+            <span class="feature-name">HTLC</span>
+            <span class="feature-desc">Hash/time-locked conditional payments</span>
+          </div>
+          <div class="feature">
+            <span class="feature-name">BRIDGE</span>
+            <span class="feature-desc">Cross-federation token transfer</span>
+          </div>
+          <div class="feature">
+            <span class="feature-name">MULTI-PARTY</span>
+            <span class="feature-desc">Atomic transfer to multiple recipients</span>
+          </div>
+          <div class="feature">
+            <span class="feature-name">TOR</span>
+            <span class="feature-desc">Native .onion service support</span>
+          </div>
+        </div>
+      </div>
+
+      <pre class="ascii-border">
+╚══════════════════════════════════════════════════════════════════════════════╝</pre>
+    </section>
+
+    <!-- RUN YOUR OWN -->
+    <section class="section">
+      <div class="section-header">
+        <h2>Run Your Own Mint</h2>
+      </div>
+
+      <div class="content">
+        <pre class="code-block">
+# Clone and build
+git clone https://github.com/flammafex/scarcity.git
+cd scarcity
+
+# Docker: run everything (recommended)
+docker compose up --build
+
+# Or manually:
+npm install
+npm run build
+npm test
+
+# Start web wallet
+npm run web        # http://localhost:3000
+
+# Start explorer
+npm run explorer   # http://localhost:3001
+
+# CLI operations
+scar wallet create alice
+scar token mint alice 100
+scar token list alice
+        </pre>
+      </div>
+
+      <pre class="ascii-border">
+╚══════════════════════════════════════════════════════════════════════════════╝</pre>
+    </section>
+
+    <!-- FAQ -->
+    <section class="section">
+      <div class="section-header">
+        <h2>FAQ</h2>
+      </div>
+
+      <div class="content faq">
+        <div class="faq-item">
+          <div class="faq-q">Is this a blockchain?</div>
+          <div class="faq-a">No. No global ledger, no mining, no consensus. Nullifier gossip + threshold timestamps.</div>
+        </div>
+        <div class="faq-item">
+          <div class="faq-q">Is this a cryptocurrency?</div>
+          <div class="faq-a">It's Chaumian e-cash. Blind-signed bearer tokens issued by trusted mints, not a permissionless ledger. Think digital banknotes, not Bitcoin.</div>
+        </div>
+        <div class="faq-item">
+          <div class="faq-q">How do you prevent double-spending?</div>
+          <div class="faq-a">Nullifiers broadcast P2P. If seen twice, reject. Witness federation provides deterministic ground truth for disputes.</div>
+        </div>
+        <div class="faq-item">
+          <div class="faq-q">Who controls the money supply?</div>
+          <div class="faq-a">The mint operator (Freebird issuer). The protocol doesn't enforce supply limits &mdash; the mint does. Witness attestations make issuance auditable, optionally anchored to Ethereum for tamper-proof history.</div>
+        </div>
+        <div class="faq-item">
+          <div class="faq-q">Why trust a mint?</div>
+          <div class="faq-a">Same reason you trust a bank: reputation, auditability, legal obligation. But unlike banks, the mint can't see your transactions &mdash; VOPRF blinds them. Vendors choose which mints to accept.</div>
+        </div>
+        <div class="faq-item">
+          <div class="faq-q">Why do tokens expire?</div>
+          <div class="faq-a">Lazy demurrage. Lost keys don't create permanent dead weight. Money circulates, not accumulates. Based on Gesell's Freigeld.</div>
+        </div>
+        <div class="faq-item">
+          <div class="faq-q">Is this production-ready?</div>
+          <div class="faq-a">Research prototype. Core crypto is real (VOPRF, BLS, Schnorr). Needs security audits.</div>
+        </div>
+      </div>
+
+      <pre class="ascii-border">
+╚══════════════════════════════════════════════════════════════════════════════╝</pre>
+    </section>
+
+    <!-- FOOTER -->
+    <footer class="footer">
+      <pre class="ascii-token">
+╔═══════════════════════════════════════════════════════════════════════════════╗
+║  No gas fees. No mining. No blockchain. Private bearer cash.                  ║
+╚═══════════════════════════════════════════════════════════════════════════════╝
+      </pre>
+      <div class="footer-links">
+        <a href="https://github.com/flammafex/scarcity">GitHub</a>
+        <span class="separator">·</span>
+        <a href="https://github.com/flammafex/scarcity/blob/main/ECONOMICS.md">Economics</a>
+        <span class="separator">·</span>
+        <a href="https://carpocratian.org">Carpocratian Church</a>
+      </div>
+      <div class="footer-copy">Apache 2.0 License</div>
+    </footer>
+
+  </div>
+
+  <script>
+    // Animate the decay demo bar
+    const decayBar = document.getElementById('demo-decay');
+    let width = 100;
+    let direction = -1;
+
+    setInterval(() => {
+      width += direction * 0.5;
+      if (width <= 10) direction = 1;
+      if (width >= 100) direction = -1;
+
+      decayBar.style.width = width + '%';
+
+      if (width < 20) {
+        decayBar.classList.add('critical');
+      } else {
+        decayBar.classList.remove('critical');
+      }
+    }, 100);
+  </script>
+</body>
+</html>

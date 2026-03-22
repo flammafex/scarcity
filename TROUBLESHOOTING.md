@@ -212,12 +212,14 @@ docker ps
 **Problem:** Docker services need specific ports that are already occupied.
 
 **Ports used by Scarcity Docker services:**
-- `3000`: HyperToken Relay (WebSocket)
+- `3000`: Scarcity Web Wallet
+- `3001`: Nullscape Explorer
+- `3002`: HyperToken Relay (WebSocket)
 - `8080`: Witness Gateway (HTTP)
 - `8081`: Freebird Issuer
 - `8082`: Freebird Verifier
 
-**Note:** Port 3001 is used by Nullscape Explorer when run locally, not by Docker services.
+**Note:** Port 3002 maps to the HyperToken Relay's container port 3000.
 
 **Solution:**
 
@@ -570,7 +572,7 @@ docker compose ps
 # - freebird-issuer (port 8081)
 # - freebird-verifier (port 8082)
 # - witness-gateway (port 8080)
-# - hypertoken-relay (ws://localhost:8080)
+# - hypertoken-relay (ws://localhost:3002)
 ```
 
 **Start services if not running:**
@@ -743,10 +745,10 @@ docker compose logs hypertoken-relay
 **Test WebSocket connection:**
 ```bash
 # Using websocat (install: cargo install websocat)
-websocat ws://localhost:8080
+websocat ws://localhost:3002
 
 # Or using wscat (install: npm install -g wscat)
-wscat -c ws://localhost:8080
+wscat -c ws://localhost:3002
 ```
 
 **Use simulation mode:**
@@ -899,7 +901,7 @@ echo "Build Tools:"
 which gcc g++ make || echo "Build tools not found"
 echo ""
 echo "Port Status:"
-lsof -i :3000 -i :3001 -i :8080 -i :8081 -i :8082 || netstat -an | grep -E ':(3000|3001|8080|8081|8082)'
+lsof -i :3000 -i :3001 -i :3002 -i :8080 -i :8081 -i :8082 || netstat -an | grep -E ':(3000|3001|3002|8080|8081|8082)'
 echo ""
 echo "Scarcity Config:"
 ls -la ~/.scarcity/ 2>/dev/null || echo "~/.scarcity/ not found"

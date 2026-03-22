@@ -174,7 +174,7 @@ const gossip = new NullifierGossip({
 A valid nullifier is derived from a **valid Token ID and Secret**:
 
 ```
-nullifier = Hash(secret || tokenId || timestamp)
+nullifier = SHA-256(secret || tokenId)
 ```
 
 To generate a valid nullifier that passes Witness verification, an attacker needs:
@@ -739,6 +739,7 @@ for (const peer of outboundPeers) {
 
 // 4. Validator with high confidence threshold
 const validator = new TransferValidator({
+  freebird,
   gossip,
   witness,
   waitTime: 5000,
