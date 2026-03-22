@@ -23,7 +23,12 @@ export interface BridgeConfig {
   readonly targetWitness: WitnessClient;
   readonly sourceGossip: GossipNetwork;
   readonly targetGossip: GossipNetwork;
-  readonly freebird: FreebirdClient;
+  /** Freebird for the source federation (ownership proofs, locking) */
+  readonly sourceFreebird?: FreebirdClient;
+  /** Freebird for the target federation (commitments, auth tokens for recipient) */
+  readonly targetFreebird?: FreebirdClient;
+  /** @deprecated Use sourceFreebird/targetFreebird instead. When provided alone, used for both federations. */
+  readonly freebird?: FreebirdClient;
 }
 
 export class FederationBridge {
@@ -33,7 +38,8 @@ export class FederationBridge {
   private readonly targetWitness: WitnessClient;
   private readonly sourceGossip: GossipNetwork;
   private readonly targetGossip: GossipNetwork;
-  private readonly freebird: FreebirdClient;
+  private readonly sourceFreebird: FreebirdClient;
+  private readonly targetFreebird: FreebirdClient;
 
   constructor(config: BridgeConfig) {
     this.sourceFederation = config.sourceFederation;
@@ -42,7 +48,9 @@ export class FederationBridge {
     this.targetWitness = config.targetWitness;
     this.sourceGossip = config.sourceGossip;
     this.targetGossip = config.targetGossip;
-    this.freebird = config.freebird;
+    // Support both new (sourceFreebird/targetFreebird) and legacy (freebird) config
+    this.sourceFreebird = config.sourceFreebird ?? config.freebird!;
+    this.targetFreebird = config.targetFreebird ?? config.freebird!;
   }
 
   /**
@@ -68,11 +76,12 @@ export class FederationBridge {
       tokenState.id
     );
 
-    // Create commitment for recipient in target federation
-    const commitment = await this.freebird.blind(recipientKey);
+    // Create commitment and auth token for recipient via TARGET federation's Freebird
+    const commitment = await this.targetFreebird.blind(recipientKey);
+    const authToken = await this.targetFreebird.issueToken(commitment);
 
-    // Create ownership proof bound to nullifier
-    const ownershipProof = await this.freebird.createOwnershipProof(
+    // Create ownership proof bound to nullifier via SOURCE federation's Freebird
+    const ownershipProof = await this.sourceFreebird.createOwnershipProof(
       tokenState.secret,
       nullifier
     );
@@ -84,6 +93,7 @@ export class FederationBridge {
       targetFederation: this.targetFederation,
       amount: tokenState.amount,
       commitment,
+      authToken,
       nullifier
     };
 
@@ -122,6 +132,7 @@ export class FederationBridge {
       targetFederation: this.targetFederation,
       amount: tokenState.amount,
       commitment,
+      authToken,
       nullifier,
       sourceProof,
       targetProof,
@@ -154,12 +165,20 @@ export class FederationBridge {
       }
     }
 
+    // Verify Freebird authorization token is present (V3 tokens are single-use;
+    // actual verification happens before receiveBridged is called).
+    if (!pkg.authToken || pkg.authToken.length === 0) {
+      throw new Error('Missing required Freebird authorization token for bridge');
+    }
+
     // Verify ownership proof
-    if (pkg.ownershipProof) {
-      const ownershipValid = await this.freebird.verifyOwnershipProof(pkg.ownershipProof, pkg.nullifier);
-      if (!ownershipValid) {
-        throw new Error('Invalid ownership proof');
-      }
+    if (!pkg.ownershipProof) {
+      throw new Error('Missing required ownership proof for bridge');
+    }
+    // Ownership proof was created by source federation's Freebird
+    const ownershipValid = await this.sourceFreebird.verifyOwnershipProof(pkg.ownershipProof, pkg.nullifier);
+    if (!ownershipValid) {
+      throw new Error('Invalid ownership proof');
     }
 
     // Verify this is the correct target federation
@@ -170,17 +189,31 @@ export class FederationBridge {
       );
     }
 
+    // Replay protection: check if this bridge nullifier was already used
+    // in the target federation. Without this, the same BridgePackage could
+    // be submitted multiple times to mint duplicate tokens.
+    const alreadyBridged = await this.targetGossip.checkNullifier(pkg.nullifier);
+    if (alreadyBridged > 0) {
+      throw new Error('Bridge replay detected: nullifier already exists in target federation');
+    }
+
     // Create new token in target federation with unique ID
     // Derive a new ID to prevent nullifier collision across federations
     const targetTokenId = Crypto.toHex(
       Crypto.hash(pkg.sourceTokenId, this.targetFederation, 'bridge-v1')
     );
 
+    // Publish nullifier in target federation to prevent replay.
+    // Use targetProof (attested by the target witness) so the target gossip
+    // network can verify it. Fall back to sourceProof if targetProof is absent.
+    const replayProof = pkg.targetProof ?? pkg.sourceProof;
+    await this.targetGossip.publish(pkg.nullifier, replayProof);
+
     return new ScarbuckToken({
       id: targetTokenId,
       amount: pkg.amount,
       secret: recipientSecret,
-      freebird: this.freebird,
+      freebird: this.targetFreebird,
       witness: this.targetWitness,
       gossip: this.targetGossip
     });

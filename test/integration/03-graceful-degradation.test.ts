@@ -110,6 +110,7 @@ export async function runGracefulDegradationTest(): Promise<void> {
     }
 
     const validator = new TransferValidator({
+      freebird,
       gossip,
       witness,
       waitTime: 1000,

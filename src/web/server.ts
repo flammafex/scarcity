@@ -52,10 +52,20 @@ export class WebWalletServer {
     this.app.use(express.json());
     this.app.use(express.static(join(__dirname, 'public')));
 
-    // Error handler
+    // Error handler — distinguish client errors from server errors
     this.app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
-      console.error('Error:', err);
-      res.status(500).json({
+      // Common client-side errors (bad hex, missing fields, invalid data)
+      const isClientError =
+        err.message.includes('Invalid hex') ||
+        err.message.includes('Invalid transfer') ||
+        err.message.includes('not found') ||
+        err.message.includes('required') ||
+        err.message.includes('already spent');
+      const status = isClientError ? 400 : 500;
+      if (status === 500) {
+        console.error('Server error:', err);
+      }
+      res.status(status).json({
         success: false,
         error: err.message
       });
@@ -278,6 +288,9 @@ export class WebWalletServer {
         if (!tokenId || !recipientPublicKey) {
           return res.status(400).json({ success: false, error: 'tokenId and recipientPublicKey required' });
         }
+        if (typeof recipientPublicKey !== 'string' || !/^[0-9a-fA-F]+$/.test(recipientPublicKey)) {
+          return res.status(400).json({ success: false, error: 'recipientPublicKey must be a valid hex string' });
+        }
 
         const storedToken = this.tokenStorage.getToken(tokenId);
         if (!storedToken || storedToken.spent) {
@@ -353,7 +366,8 @@ export class WebWalletServer {
           ownershipProof: transfer.ownershipProof ? Crypto.fromHex(transfer.ownershipProof) : undefined
         };
 
-        const recipientSecret = this.walletManager.getSecretKey(wallet);
+        // Derive a unique secret for this token (prevents linking tokens in the same wallet)
+        const recipientSecret = this.walletManager.deriveTokenSecret(tokenTransfer.tokenId, wallet);
         const infra = this.infraManager.get();
 
         const token = await ScarbuckToken.receive(
@@ -429,9 +443,9 @@ export class WebWalletServer {
         // Mark original as spent
         this.tokenStorage.markSpent(tokenId);
 
-        // Store new tokens
+        // Store new tokens (each with a unique derived secret)
         const newTokens = splitPackage.splits.map((split, index) => {
-          const secret = this.walletManager.getSecretKey(storedToken.wallet);
+          const secret = this.walletManager.deriveTokenSecret(split.tokenId, storedToken.wallet);
           this.tokenStorage.addToken({
             id: split.tokenId,
             amount: split.amount,

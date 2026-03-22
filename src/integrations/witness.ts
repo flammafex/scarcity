@@ -278,6 +278,7 @@ export class WitnessAdapter implements WitnessClient {
 
     // Fallback mode for local/offline development and tests.
     // Produces a structurally valid attestation without remote guarantees.
+    this.warningOnce('timestamp:fallback', '[Witness] ⚠ No gateway available — using INSECURE fallback timestamp. DO NOT USE IN PRODUCTION.');
     const fallbackTimestamp = Date.now();
     const fallbackSignatures = this.fallbackWitnessIds.map((id) =>
       Crypto.hashString(`fallback-sig:${id}:${hash}:${fallbackTimestamp}`)
@@ -370,6 +371,7 @@ export class WitnessAdapter implements WitnessClient {
     }
 
     // Fallback mode for local/offline development and tests.
+    this.warningOnce('verify:fallback', '[Witness] ⚠ No gateway available — using INSECURE fallback verification. DO NOT USE IN PRODUCTION.');
     return (
       attestation.signatures.length >= 2 &&
       attestation.witnessIds.length === attestation.signatures.length
@@ -484,6 +486,31 @@ export class WitnessAdapter implements WitnessClient {
    * @param pubkeysHex - Array of hex-encoded public keys (48 bytes each)
    * @returns true if signature is valid
    */
+  /**
+   * Verify a BLS Proof-of-Possession for a public key.
+   *
+   * PoP = Sign(SK, H("BLS_POP_" || PK)) — proves the holder knows the
+   * secret key, preventing rogue key attacks during aggregation.
+   */
+  private verifyBLSProofOfPossession(pubkeyBytes: Uint8Array, popHex: string): boolean {
+    try {
+      const pop = Uint8Array.from(Buffer.from(
+        popHex.startsWith('0x') ? popHex.slice(2) : popHex, 'hex'
+      ));
+      // PoP message: H("BLS_POP_" || PK)
+      const popMessage = new Uint8Array([
+        ...new TextEncoder().encode('BLS_POP_'),
+        ...pubkeyBytes
+      ]);
+      return bls12_381.verify(pop, popMessage, pubkeyBytes);
+    } catch {
+      return false;
+    }
+  }
+
+  // Cache of validated PoPs so we only verify once per key
+  private readonly validatedPoPKeys = new Set<string>();
+
   private verifyBLSAggregatedSignature(
     message: Uint8Array,
     aggregatedSigHex: string,
@@ -500,10 +527,38 @@ export class WitnessAdapter implements WitnessClient {
         return Uint8Array.from(Buffer.from(hex, 'hex'));
       });
 
-      // Aggregate public keys (G1 point addition)
+      // Aggregate public keys with rogue key attack protection
       let aggregatedPubkey = bls12_381.G1.ProjectivePoint.ZERO;
-      for (const pk of pubkeys) {
+      for (let i = 0; i < pubkeys.length; i++) {
+        const pk = pubkeys[i];
+        // fromHex performs subgroup checking (rejects points not on G1)
         const point = bls12_381.G1.ProjectivePoint.fromHex(pk);
+
+        // Reject the identity point (zero key)
+        if (point.equals(bls12_381.G1.ProjectivePoint.ZERO)) {
+          console.error(`[Witness] BLS key ${i} is the identity point, rejecting`);
+          return false;
+        }
+
+        // Verify Proof-of-Possession if available (prevents rogue key attacks)
+        const pkHex = pubkeysHex[i].startsWith('0x') ? pubkeysHex[i].slice(2) : pubkeysHex[i];
+        if (!this.validatedPoPKeys.has(pkHex)) {
+          const witness = this.config?.witnesses?.find((w: any) => {
+            const wHex = w.pubkey?.startsWith('0x') ? w.pubkey.slice(2) : w.pubkey;
+            return wHex === pkHex;
+          });
+          if (witness?.pop) {
+            if (!this.verifyBLSProofOfPossession(pk, witness.pop)) {
+              console.error(`[Witness] Invalid Proof-of-Possession for key ${pkHex.slice(0, 16)}...`);
+              return false;
+            }
+            this.validatedPoPKeys.add(pkHex);
+          } else {
+            // No PoP available — log warning. In production, this should be required.
+            console.warn(`[Witness] No Proof-of-Possession for BLS key ${pkHex.slice(0, 16)}... — rogue key attack possible`);
+          }
+        }
+
         aggregatedPubkey = aggregatedPubkey.add(point);
       }
 
@@ -577,9 +632,13 @@ export class WitnessAdapter implements WitnessClient {
       const validResults = results.filter(r => r !== null);
 
       if (validResults.length === 0) {
-        // All gateways failed - cannot determine, return low confidence
-        console.warn('[Witness] All gateways failed, cannot verify nullifier');
-        return 0;
+        // All gateways failed — cannot determine safety.
+        // Return suspicious (0.5) not safe (0), matching split-vote semantics.
+        if (!this.allowInsecureFallback) {
+          throw new Error('Nullifier check failed: all Witness gateways unreachable');
+        }
+        this.warningOnce('checkNullifier:fallback', '[Witness] ⚠ All gateways failed — returning suspicious (0.5). DO NOT USE IN PRODUCTION.');
+        return 0.5;
       }
 
       // Count votes
@@ -603,8 +662,11 @@ export class WitnessAdapter implements WitnessClient {
       }
     }
 
-    // Fallback: cannot check without gateway
-    return 0;
+    // No gateway config — cannot check.
+    if (!this.allowInsecureFallback) {
+      throw new Error('Nullifier check failed: no Witness gateway available');
+    }
+    return 0.5;
   }
 
   /**

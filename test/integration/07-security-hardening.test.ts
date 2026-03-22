@@ -94,6 +94,7 @@ export async function runSecurityHardeningTest(): Promise<void> {
     gossip.addPeer(unknownPeer);
 
     const validator = new TransferValidator({
+      freebird,
       gossip,
       witness,
       waitTime: 0,
@@ -228,6 +229,7 @@ export async function runSecurityHardeningTest(): Promise<void> {
     }
 
     const validator = new TransferValidator({
+      freebird,
       gossip,
       witness,
       waitTime: 1000,

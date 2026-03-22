@@ -196,6 +196,12 @@ function verifyDleq(
   const c = bytesToNumber(cBytes);
   const s = bytesToNumber(sBytes);
 
+  // Validate scalars are in range [1, n) where n is the P-256 curve order.
+  // Without this, out-of-range scalars could bypass DLEQ proof verification.
+  const n = p256.CURVE.n;
+  if (c === 0n || c >= n) return false;
+  if (s === 0n || s >= n) return false;
+
   // Recompute commitments
   // t1 = G * s - Y * c
   const sG = P256.multiply(G, s);

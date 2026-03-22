@@ -83,14 +83,21 @@ export class Crypto {
     tokenId: string;
     amount: number;
     commitment: Uint8Array;
+    authToken?: Uint8Array;
     nullifier: Uint8Array;
   }): string {
-    const hash = this.hash(
+    const inputs: (string | number | Uint8Array)[] = [
       pkg.tokenId,
       pkg.amount,
       pkg.commitment,
       pkg.nullifier
-    );
+    ];
+    // Include authToken in the hash when present so the Witness proof
+    // covers the authorization token, preventing token swapping attacks.
+    if (pkg.authToken) {
+      inputs.push(pkg.authToken);
+    }
+    const hash = this.hash(...inputs);
     return this.toHex(hash);
   }
 

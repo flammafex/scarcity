@@ -13,11 +13,13 @@ import type {
   TransferPackage,
   ValidationResult,
   ConfidenceParams,
+  FreebirdClient,
   WitnessClient,
   GossipNetwork
 } from './types.js';
 
 export interface ValidatorConfig {
+  readonly freebird: FreebirdClient;
   readonly gossip: GossipNetwork;
   readonly witness: WitnessClient;
   readonly waitTime?: number; // milliseconds
@@ -26,13 +28,15 @@ export interface ValidatorConfig {
 }
 
 export class TransferValidator {
+  private readonly freebird: FreebirdClient;
   private readonly gossip: GossipNetwork;
   private readonly witness: WitnessClient;
   private readonly waitTime: number;
   private readonly minConfidence: number;
   private readonly maxTokenAge: number;
-  
+
   constructor(config: ValidatorConfig) {
+    this.freebird = config.freebird;
     this.gossip = config.gossip;
     this.witness = config.witness;
     this.waitTime = config.waitTime ?? 5000; // 5 seconds default
@@ -61,8 +65,25 @@ export class TransferValidator {
         reason: `Token expired. Proof age (${(age/3600000).toFixed(1)}h) exceeds limit.`
       };
     }
-    
-    // Step 2: Fast gossip check (instant, probabilistic)
+
+    // Step 2: Verify Freebird authorization token
+    if (!pkg.authToken) {
+      return {
+        valid: false,
+        confidence: 0,
+        reason: 'Missing required Freebird authorization token'
+      };
+    }
+    const authValid = await this.freebird.verifyToken(pkg.authToken);
+    if (!authValid) {
+      return {
+        valid: false,
+        confidence: 0,
+        reason: 'Invalid Freebird authorization token'
+      };
+    }
+
+    // Step 3: Fast gossip check (instant, probabilistic)
     const gossipConfidence = await this.gossip.checkNullifier(pkg.nullifier);
 
     // For a legitimate transfer, the nullifier will be seen once (confidence ~0.1-0.4).
@@ -78,9 +99,8 @@ export class TransferValidator {
         reason: `Double-spend detected in gossip network (confidence: ${gossipConfidence.toFixed(2)})`
       };
     }
-    
 
-    // Step 3: Witness federation check (slower, deterministic)
+    // Step 4: Witness federation check (slower, deterministic)
     const witnessConfidence = await this.witness.checkNullifier(pkg.nullifier);
 
     if (witnessConfidence > 0) {
@@ -92,7 +112,7 @@ export class TransferValidator {
       };
     }
 
-    // Step 4: Verify the Witness attestation itself
+    // Step 5: Verify the Witness attestation itself
     const proofValid = await this.witness.verify(pkg.proof);
     if (!proofValid) {
       return {
@@ -102,7 +122,7 @@ export class TransferValidator {
       };
     }
 
-    // Step 5: Wait for gossip propagation (tunable delay)
+    // Step 6: Wait for gossip propagation (tunable delay)
     if (this.waitTime > 0) {
       await this.sleep(this.waitTime);
 
@@ -118,14 +138,14 @@ export class TransferValidator {
       }
     }
 
-    // Step 6: Compute confidence score
+    // Step 7: Compute confidence score
     const confidence = this.computeConfidence({
       gossipPeers: this.gossip.peers.length,
       witnessDepth: this.getWitnessFederationDepth(),
       waitTime: this.waitTime
     });
 
-    // Step 7: Accept or reject based on confidence threshold
+    // Step 8: Accept or reject based on confidence threshold
     if (confidence < this.minConfidence) {
       return {
         valid: false,
@@ -256,9 +276,19 @@ export class TransferValidator {
    * For now, we return a default value.
    */
   private getWitnessFederationDepth(): number {
-    // TODO: Query actual Witness federation
-    // For now, assume a 3-of-5 threshold (depth = 3)
-    return 3;
+    // Query the Witness adapter's config for actual federation size.
+    // WitnessAdapter exposes this via getConfig() when available.
+    const witnessConfig = (this.witness as any).config;
+    if (witnessConfig?.witnesses?.length) {
+      return witnessConfig.witnesses.length;
+    }
+    // Fall back to quorum threshold if exposed
+    const quorum = (this.witness as any).quorumThreshold;
+    if (typeof quorum === 'number' && quorum > 0) {
+      return quorum;
+    }
+    // Conservative default: assume minimal federation
+    return 1;
   }
 
   /**

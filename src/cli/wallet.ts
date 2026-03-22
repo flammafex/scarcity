@@ -212,6 +212,18 @@ export class WalletManager {
   }
 
   /**
+   * Derive a unique per-token secret from the wallet's master secret.
+   *
+   * Each token should have its own secret so that nullifiers are unique
+   * and tokens can't be linked to each other. The derivation is
+   * deterministic (recoverable from master secret + token ID).
+   */
+  deriveTokenSecret(tokenId: string, walletName?: string): Uint8Array {
+    const masterSecret = this.getSecretKey(walletName);
+    return Crypto.hash(masterSecret, `token:${tokenId}`);
+  }
+
+  /**
    * Get default wallet name
    */
   getDefaultWalletName(): string | undefined {

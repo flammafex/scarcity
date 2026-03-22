@@ -186,6 +186,7 @@ export class FreebirdAdapter implements FreebirdClient {
       }
       // Fallback mode for local/offline development.
       // Produces a deterministic 32-byte commitment-shaped value.
+      this.warningOnce('blind:fallback', '[Freebird] ⚠ No issuer available — using INSECURE fallback blind (not VOPRF). DO NOT USE IN PRODUCTION.');
       return Crypto.hash(new TextEncoder().encode('freebird-fallback-blind'), publicKey.bytes);
     }
 
@@ -302,6 +303,7 @@ export class FreebirdAdapter implements FreebirdClient {
         );
       }
       this.blindStates.delete(blindedHex);
+      this.warningOnce('issueToken:fallback', '[Freebird] ⚠ No issuer available — using INSECURE fallback token. DO NOT USE IN PRODUCTION.');
       return Crypto.hash(new TextEncoder().encode('freebird-fallback-token'), blindedValue);
     }
 
@@ -326,38 +328,37 @@ export class FreebirdAdapter implements FreebirdClient {
    * @throws Error if verifier is unavailable
    */
   async verifyToken(token: Uint8Array): Promise<boolean> {
-    await this.init();
-
-    if (this.metadata.size === 0) {
-      if (!this.allowInsecureFallback) {
-        throw new Error(
-          'Token verification failed: no Freebird issuer available. ' +
-          'Set SCARCITY_ALLOW_INSECURE_FALLBACK=true (or allowInsecureFallback) for local/dev fallback mode.'
-        );
-      }
-      // Fallback mode for local/offline development.
-      return token.length > 0;
-    }
-
     if (!this.verifierUrl) {
       throw new Error('Token verification failed: no verifier URL configured');
     }
 
-    // V3 tokens are self-contained — verifier only needs the token itself
-    const response = await this.fetch(`${this.verifierUrl}/v1/verify`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        token_b64: voprf.bytesToBase64Url(token),
-      })
-    });
+    // Always attempt the verifier — it is separate infrastructure from the issuer.
+    // Issuer availability is irrelevant for verification.
+    try {
+      const response = await this.fetch(`${this.verifierUrl}/v1/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          token_b64: voprf.bytesToBase64Url(token),
+        })
+      });
 
-    if (!response.ok) {
-      throw new Error(`Token verification failed: verifier returned ${response.status}`);
+      if (!response.ok) {
+        throw new Error(`Token verification failed: verifier returned ${response.status}`);
+      }
+
+      const data = await response.json();
+      return data.ok === true;
+    } catch (error) {
+      if (!this.allowInsecureFallback) {
+        throw error;
+      }
+      this.warningOnce(
+        'verifyToken:fallback',
+        `[Freebird] Verifier unreachable (${this.summarizeError(error)}), using insecure fallback`
+      );
+      return token.length > 0;
     }
-
-    const data = await response.json();
-    return data.ok === true;
   }
 
   /**

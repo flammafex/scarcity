@@ -48,6 +48,9 @@ export class NullifierGossip {
   private readonly peerScoreThreshold: number;
   private readonly maxTimestampFuture: number;
   private readonly requireOwnershipProof: boolean;
+  // Tracks in-flight publish operations to prevent race conditions
+  // where two concurrent publishes of the same nullifier both pass the has() check.
+  private readonly publishingNullifiers = new Set<string>();
 
   constructor(config: GossipConfig) {
     this.witness = config.witness;
@@ -84,8 +87,22 @@ export class NullifierGossip {
       throw new Error('Double-spend detected! Nullifier already published.');
     }
 
-    // Add to local set with metadata
-    this.seenNullifiers.set(key, {
+    // Prevent race condition: if another coroutine is already publishing
+    // this nullifier (between has() check and set()), reject the duplicate.
+    if (this.publishingNullifiers.has(key)) {
+      throw new Error('Double-spend detected! Nullifier publish already in progress.');
+    }
+    this.publishingNullifiers.add(key);
+
+    try {
+      // Verify Witness proof before storing — reject invalid attestations
+      const valid = await this.witness.verify(proof);
+      if (!valid) {
+        throw new Error('Cannot publish nullifier: invalid Witness attestation');
+      }
+
+      // Add to local set with metadata
+      this.seenNullifiers.set(key, {
       nullifier,
       proof,
       firstSeen: Date.now(),
@@ -105,6 +122,9 @@ export class NullifierGossip {
     // Notify local receiveHandler (so collectors in same process can see it)
     if (this.receiveHandler) {
       await this.receiveHandler(message);
+    }
+    } finally {
+      this.publishingNullifiers.delete(key);
     }
   }
 

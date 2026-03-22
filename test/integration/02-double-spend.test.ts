@@ -52,6 +52,7 @@ export async function runDoubleSpendTest(): Promise<void> {
   }
 
   const validator = new TransferValidator({
+    freebird,
     gossip,
     witness,
     waitTime: 3000,

@@ -52,6 +52,7 @@ async function basicTransfer() {
   console.log('3. Creating transfer validator...');
 
   const validator = new TransferValidator({
+    freebird,
     gossip,
     witness,
     waitTime: 5000,      // 5 second wait

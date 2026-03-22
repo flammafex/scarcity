@@ -231,6 +231,13 @@ export class HyperTokenAdapter {
    * Connect to relay server
    */
   async connect(): Promise<void> {
+    // Reset readyPromise so callers awaiting it after a reconnect get
+    // the new connection state, not a stale resolved promise.
+    this.readyPromise = new Promise<void>((resolve, reject) => {
+      this.readyResolve = resolve;
+      this.readyReject = reject;
+    });
+
     this.routedManager = new RoutedPeerManager({
       url: this.relayUrl,
       autoUpgrade: true,

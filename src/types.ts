@@ -27,6 +27,7 @@ export interface TransferPackage {
   readonly tokenId: string;
   readonly amount: number;
   readonly commitment: Uint8Array;
+  readonly authToken?: Uint8Array;
   readonly nullifier: Uint8Array;
   readonly proof: Attestation;
   readonly ownershipProof?: Uint8Array;
@@ -39,6 +40,7 @@ export interface SplitPackage {
     tokenId: string;
     amount: number;
     commitment: Uint8Array;
+    authToken?: Uint8Array;
   }>;
   readonly nullifier: Uint8Array;
   readonly proof: Attestation;
@@ -49,6 +51,7 @@ export interface MergePackage {
   readonly targetTokenId: string;
   readonly targetAmount: number;
   readonly commitment: Uint8Array;
+  readonly authToken?: Uint8Array;
   readonly sources: Array<{
     tokenId: string;
     amount: number;
@@ -65,6 +68,7 @@ export interface MultiPartyTransfer {
     publicKey: PublicKey;
     amount: number;
     commitment: Uint8Array;
+    authToken?: Uint8Array;
     tokenId: string;
   }>;
   readonly nullifier: Uint8Array;
@@ -83,6 +87,7 @@ export interface HTLCPackage {
   readonly tokenId: string;
   readonly amount: number;
   readonly commitment: Uint8Array;
+  readonly authToken?: Uint8Array;
   readonly nullifier: Uint8Array;
   readonly condition: HTLCCondition;
   readonly proof: Attestation;
@@ -96,6 +101,7 @@ export interface BridgePackage {
   readonly targetFederation: string;
   readonly amount: number;
   readonly commitment: Uint8Array;
+  readonly authToken?: Uint8Array;
   readonly nullifier: Uint8Array;
   readonly sourceProof: Attestation;
   readonly targetProof?: Attestation;

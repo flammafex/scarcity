@@ -50,6 +50,7 @@ async function confidenceTuning() {
 
     // Create validator
     const validator = new TransferValidator({
+      freebird,
       gossip,
       witness,
       waitTime: 5000,
@@ -112,6 +113,7 @@ async function confidenceTuning() {
   ];
 
   const validator = new TransferValidator({
+    freebird,
     gossip,
     witness,
     waitTime: 5000,

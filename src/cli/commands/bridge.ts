@@ -119,7 +119,8 @@ export class BridgeCommand extends Command {
         targetWitness,
         sourceGossip,
         targetGossip,
-        freebird: sourceFreebird
+        sourceFreebird,
+        targetFreebird
       });
 
       // Bridge the token
@@ -236,7 +237,8 @@ export class BridgeCommand extends Command {
         targetWitness,
         sourceGossip,
         targetGossip,
-        freebird: sourceFreebird
+        sourceFreebird,
+        targetFreebird
       });
 
       // Receive bridged token

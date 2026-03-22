@@ -66,6 +66,7 @@ export async function runPhase3Tests(): Promise<any> {
 
   // Create validator
   const validator = new TransferValidator({
+    freebird,
     gossip,
     witness,
     waitTime: 2000,

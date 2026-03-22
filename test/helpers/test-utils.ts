@@ -17,12 +17,12 @@ export const TestConfig = {
     verifier: process.env.FREEBIRD_VERIFIER_URL || 'http://localhost:8082'
   },
   witness: {
-    gateway: process.env.WITNESS_GATEWAY_URL || 'http://localhost:8080',
+    gateway: process.env.WITNESS_GATEWAY_URL || 'http://localhost:8083',
     // Secondary gateway for bridge tests (defaults to 5002 if not specified)
     gateway2: process.env.WITNESS_GATEWAY_2_URL || 'http://localhost:5002'
   },
   hypertoken: {
-    relay: process.env.HYPERTOKEN_RELAY_URL || 'ws://localhost:3000'
+    relay: process.env.HYPERTOKEN_RELAY_URL || 'ws://localhost:5001'
   }
 };
 

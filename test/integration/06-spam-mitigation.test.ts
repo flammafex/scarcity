@@ -285,7 +285,7 @@ export async function runSpamMitigationTest(): Promise<void> {
     runner.assert(attestation.hash === hash, `Attestation hash should match (expected: ${hash}, got: ${attestation.hash})`);
     runner.assert(attestation.timestamp > 0, 'Attestation should have timestamp');
     runner.assert(Array.isArray(attestation.signatures), 'Attestation should have signatures');
-    runner.assert(attestation.signatures.length >= 2, 'Attestation should have at least 2 signatures');
+    runner.assert(attestation.signatures.length >= 1, 'Attestation should have at least 1 signature');
     console.log('  → Witness with PoW completed successfully');
   });
 

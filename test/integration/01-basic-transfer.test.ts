@@ -64,6 +64,7 @@ export async function runBasicTransferTest(): Promise<void> {
 
   // Create validator
   const validator = new TransferValidator({
+    freebird,
     gossip,
     witness,
     waitTime: 2000,      // 2 second wait for testing

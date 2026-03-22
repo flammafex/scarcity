@@ -71,41 +71,43 @@ export class ScarbuckToken {
     }
 
     // A. Create nullifier (unique spend identifier)
-    const timestamp = Date.now();
     const nullifier = Crypto.hash(
       this.secret,
       this.id
     );
 
     // B. Blind commitment to recipient (privacy-preserving)
-    // In production: use Freebird's VOPRF blinding
     const commitment = await this.freebird.blind(to);
 
-    // C. Create ownership proof (proves we have the right to spend)
+    // C. Issue VOPRF token via Freebird issuer (anonymous authorization)
+    const authToken = await this.freebird.issueToken(commitment);
+
+    // D. Create ownership proof (proves we have the right to spend)
     // Bound to nullifier to prevent replay attacks
     const ownershipProof = await this.freebird.createOwnershipProof(this.secret, nullifier);
 
-    // D. Package transfer data
+    // E. Package transfer data
     const pkg = {
       tokenId: this.id,
       amount: this.amount,
       commitment,
+      authToken,
       nullifier
     };
 
-    // E. Hash package for timestamping
+    // F. Hash package for timestamping
     const pkgHash = Crypto.hashTransferPackage(pkg);
 
-    // F. Timestamp the transfer with Witness (proof of order)
+    // G. Timestamp the transfer with Witness (proof of order)
     const proof = await this.witness.timestamp(pkgHash);
 
-    // G. Broadcast nullifier to gossip network (fast propagation)
+    // H. Broadcast nullifier to gossip network (fast propagation)
     await this.gossip.publish(nullifier, proof);
 
-    // H. Mark as spent
+    // I. Mark as spent
     this.spent = true;
 
-    // I. Return complete transfer package
+    // J. Return complete transfer package
     return {
       ...pkg,
       proof,
@@ -146,12 +148,13 @@ export class ScarbuckToken {
     // Generate nullifier for source token
     const nullifier = Crypto.hash(this.secret, this.id);
 
-    // Create blinded commitments for each recipient
+    // Create blinded commitments and auth tokens for each recipient
     const splits = await Promise.all(
       amounts.map(async (amount, i) => {
         const tokenId = Crypto.toHex(Crypto.randomBytes(32));
         const commitment = await this.freebird.blind(recipients[i]);
-        return { tokenId, amount, commitment };
+        const authToken = await this.freebird.issueToken(commitment);
+        return { tokenId, amount, commitment, authToken };
       })
     );
 
@@ -222,8 +225,9 @@ export class ScarbuckToken {
     // Generate new token ID
     const targetTokenId = Crypto.toHex(Crypto.randomBytes(32));
 
-    // Create commitment for recipient
+    // Create commitment and auth token for recipient
     const commitment = await freebird.blind(recipientKey);
+    const authToken = await freebird.issueToken(commitment);
 
     // Generate nullifiers and ownership proofs for all source tokens
     const sources = await Promise.all(
@@ -249,6 +253,7 @@ export class ScarbuckToken {
       targetTokenId,
       targetAmount,
       commitment,
+      authToken,
       sources
     };
 
@@ -349,16 +354,23 @@ export class ScarbuckToken {
       throw new Error('Invalid transfer proof');
     }
 
-    // Verify ownership proof if present
-    if (pkg.ownershipProof) {
-      const ownershipValid = await freebird.verifyOwnershipProof(pkg.ownershipProof, pkg.nullifier);
-      if (!ownershipValid) {
-        throw new Error('Invalid ownership proof');
-      }
+    // Verify Freebird authorization token is present.
+    // Note: V3 tokens are single-use (consumed on verification), so the actual
+    // verifyToken() call happens in TransferValidator — not here.
+    if (!pkg.authToken || pkg.authToken.length === 0) {
+      throw new Error('Missing required Freebird authorization token');
+    }
+
+    // Verify ownership proof
+    if (!pkg.ownershipProof) {
+      throw new Error('Missing required ownership proof');
+    }
+    const ownershipValid = await freebird.verifyOwnershipProof(pkg.ownershipProof, pkg.nullifier);
+    if (!ownershipValid) {
+      throw new Error('Invalid ownership proof');
     }
 
     // Create new token for recipient
-    // Note: In production, recipientSecret would be used to unblind the commitment
     return new ScarbuckToken({
       id: pkg.tokenId,
       amount: pkg.amount,
@@ -399,16 +411,21 @@ export class ScarbuckToken {
       throw new Error('Invalid split proof');
     }
 
-    // Verify ownership proof if present
-    if (pkg.ownershipProof) {
-      const ownershipValid = await freebird.verifyOwnershipProof(pkg.ownershipProof, pkg.nullifier);
-      if (!ownershipValid) {
-        throw new Error('Invalid ownership proof');
-      }
+    // Verify Freebird authorization token is present (V3 tokens are single-use;
+    // actual verification happens in TransferValidator).
+    const split = pkg.splits[splitIndex];
+    if (!split.authToken || split.authToken.length === 0) {
+      throw new Error('Missing required Freebird authorization token for split');
     }
 
-    // Get the specific split for this recipient
-    const split = pkg.splits[splitIndex];
+    // Verify ownership proof
+    if (!pkg.ownershipProof) {
+      throw new Error('Missing required ownership proof');
+    }
+    const ownershipValid = await freebird.verifyOwnershipProof(pkg.ownershipProof, pkg.nullifier);
+    if (!ownershipValid) {
+      throw new Error('Invalid ownership proof');
+    }
 
     // Create new token for recipient
     return new ScarbuckToken({
@@ -444,16 +461,23 @@ export class ScarbuckToken {
       throw new Error('Invalid merge proof');
     }
 
-    // Verify ownership proofs if present
-    if (pkg.ownershipProofs) {
-      const validations = await Promise.all(
-        pkg.ownershipProofs.map((proof, i) =>
-          freebird.verifyOwnershipProof(proof, pkg.sources[i].nullifier)
-        )
-      );
-      if (validations.some(v => !v)) {
-        throw new Error('Invalid ownership proofs in merge');
-      }
+    // Verify Freebird authorization token is present (V3 tokens are single-use;
+    // actual verification happens in TransferValidator).
+    if (!pkg.authToken || pkg.authToken.length === 0) {
+      throw new Error('Missing required Freebird authorization token for merge');
+    }
+
+    // Verify ownership proofs
+    if (!pkg.ownershipProofs || pkg.ownershipProofs.length !== pkg.sources.length) {
+      throw new Error('Missing required ownership proofs for merge');
+    }
+    const validations = await Promise.all(
+      pkg.ownershipProofs.map((proof, i) =>
+        freebird.verifyOwnershipProof(proof, pkg.sources[i].nullifier)
+      )
+    );
+    if (validations.some(v => !v)) {
+      throw new Error('Invalid ownership proofs in merge');
     }
 
     // Create new token for recipient
@@ -498,15 +522,17 @@ export class ScarbuckToken {
     // Generate nullifier for source token
     const nullifier = Crypto.hash(this.secret, this.id);
 
-    // Create blinded commitments for each recipient
+    // Create blinded commitments and auth tokens for each recipient
     const recipientData = await Promise.all(
       recipients.map(async (recipient) => {
         const tokenId = Crypto.toHex(Crypto.randomBytes(32));
         const commitment = await this.freebird.blind(recipient.publicKey);
+        const authToken = await this.freebird.issueToken(commitment);
         return {
           publicKey: recipient.publicKey,
           amount: recipient.amount,
           commitment,
+          authToken,
           tokenId
         };
       })
@@ -572,16 +598,21 @@ export class ScarbuckToken {
       throw new Error('Invalid multi-party transfer proof');
     }
 
-    // Verify ownership proof if present
-    if (pkg.ownershipProof) {
-      const ownershipValid = await freebird.verifyOwnershipProof(pkg.ownershipProof, pkg.nullifier);
-      if (!ownershipValid) {
-        throw new Error('Invalid ownership proof');
-      }
+    // Verify Freebird authorization token is present (V3 tokens are single-use;
+    // actual verification happens in TransferValidator).
+    const recipient = pkg.recipients[recipientIndex];
+    if (!recipient.authToken || recipient.authToken.length === 0) {
+      throw new Error('Missing required Freebird authorization token for recipient');
     }
 
-    // Get the specific recipient data
-    const recipient = pkg.recipients[recipientIndex];
+    // Verify ownership proof
+    if (!pkg.ownershipProof) {
+      throw new Error('Missing required ownership proof');
+    }
+    const ownershipValid = await freebird.verifyOwnershipProof(pkg.ownershipProof, pkg.nullifier);
+    if (!ownershipValid) {
+      throw new Error('Invalid ownership proof');
+    }
 
     // Create new token for recipient
     return new ScarbuckToken({
@@ -673,8 +704,9 @@ export class ScarbuckToken {
     // Generate nullifier
     const nullifier = Crypto.hash(this.secret, this.id);
 
-    // Create blinded commitment to recipient
+    // Create blinded commitment and auth token for recipient
     const commitment = await this.freebird.blind(to);
+    const authToken = await this.freebird.issueToken(commitment);
 
     // Create ownership proof bound to nullifier
     const ownershipProof = await this.freebird.createOwnershipProof(this.secret, nullifier);
@@ -684,6 +716,7 @@ export class ScarbuckToken {
       tokenId: this.id,
       amount: this.amount,
       commitment,
+      authToken,
       nullifier,
       condition,
       refundPublicKey: refundKey
@@ -695,10 +728,15 @@ export class ScarbuckToken {
     // Timestamp with Witness
     const proof = await this.witness.timestamp(pkgHash);
 
-    // Broadcast nullifier (this locks the funds)
-    await this.gossip.publish(nullifier, proof);
+    // NOTE: Do NOT publish nullifier here. HTLC is a two-phase protocol:
+    //   Phase 1 (now): Lock funds — token is marked spent locally but nullifier
+    //     is NOT broadcast. This preserves the ability to refund.
+    //   Phase 2 (receiveHTLC or refundHTLC): The nullifier is published when
+    //     the HTLC is resolved, preventing double-spend at settlement time.
+    // Publishing at lock time would make refunds impossible since the gossip
+    // network would already consider the token spent.
 
-    // Mark as spent
+    // Mark as spent locally (prevents sender from double-spending)
     this.spent = true;
 
     return {
@@ -733,12 +771,19 @@ export class ScarbuckToken {
       throw new Error('Invalid HTLC proof');
     }
 
-    // Verify ownership proof if present
-    if (pkg.ownershipProof) {
-      const ownershipValid = await freebird.verifyOwnershipProof(pkg.ownershipProof, pkg.nullifier);
-      if (!ownershipValid) {
-        throw new Error('Invalid ownership proof');
-      }
+    // Verify Freebird authorization token is present (V3 tokens are single-use;
+    // actual verification happens in TransferValidator).
+    if (!pkg.authToken || pkg.authToken.length === 0) {
+      throw new Error('Missing required Freebird authorization token for HTLC');
+    }
+
+    // Verify ownership proof
+    if (!pkg.ownershipProof) {
+      throw new Error('Missing required ownership proof');
+    }
+    const ownershipValid = await freebird.verifyOwnershipProof(pkg.ownershipProof, pkg.nullifier);
+    if (!ownershipValid) {
+      throw new Error('Invalid ownership proof');
     }
 
     // Check condition
@@ -762,6 +807,10 @@ export class ScarbuckToken {
         throw new Error('Timelock expired - use refundHTLC instead');
       }
     }
+
+    // Phase 2: Publish nullifier now that the HTLC is being claimed.
+    // This prevents the sender from also refunding the same HTLC.
+    await gossip.publish(pkg.nullifier, pkg.proof);
 
     // Create new token for recipient
     return new ScarbuckToken({
@@ -797,6 +846,12 @@ export class ScarbuckToken {
       throw new Error('Invalid HTLC proof');
     }
 
+    // Verify Freebird authorization token is present (V3 tokens are single-use;
+    // actual verification happens in TransferValidator).
+    if (!pkg.authToken || pkg.authToken.length === 0) {
+      throw new Error('Missing required Freebird authorization token for HTLC refund');
+    }
+
     // Verify this is a time-locked HTLC
     if (pkg.condition.type !== 'time') {
       throw new Error('Only time-locked HTLCs can be refunded');
@@ -816,6 +871,10 @@ export class ScarbuckToken {
     if (!Crypto.constantTimeEqual(derivedPublicKey, pkg.refundPublicKey.bytes)) {
       throw new Error('Invalid refund key: secret does not match refundPublicKey');
     }
+
+    // Phase 2: Publish nullifier now that the HTLC is being refunded.
+    // This prevents the recipient from also claiming the same HTLC.
+    await gossip.publish(pkg.nullifier, pkg.proof);
 
     // Create new token for refund recipient
     return new ScarbuckToken({

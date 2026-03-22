@@ -196,9 +196,12 @@ export class HTLCCommand extends Command {
       process.exit(1);
     }
 
-    // Verify preimage if provided
+    // Verify preimage if provided — must match the encoding used in token.ts:
+    // token.ts does: Crypto.hashString(Crypto.toHex(preimageBytes))
+    // where preimageBytes = Crypto.fromHex(preimage). So we replicate that here.
     if (preimage && pkg.condition.hashlock) {
-      const preimageHash = Crypto.hashString(preimage as string);
+      const preimageHex = Crypto.toHex(Crypto.fromHex(preimage as string));
+      const preimageHash = Crypto.hashString(preimageHex);
       if (preimageHash !== pkg.condition.hashlock) {
         console.error('Error: Invalid preimage for hash lock');
         process.exit(1);

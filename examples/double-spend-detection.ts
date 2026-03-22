@@ -36,6 +36,7 @@ async function doubleSpendDetection() {
   }
 
   const validator = new TransferValidator({
+    freebird,
     gossip,
     witness,
     waitTime: 2000,      // Faster for demo

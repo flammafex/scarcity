@@ -23,6 +23,7 @@
     "test:double-spend": "npm run build && node dist/test/integration/02-double-spend.test.js",
     "test:degradation": "npm run build && node dist/test/integration/03-graceful-degradation.test.js",
     "test:phase3": "npm run build && node dist/test/integration/04-phase3-features.test.js",
+    "test:live": "npm run build && node dist/test/integration/10-live-services.test.js",
     "lint": "eslint src/"
   },
   "keywords": [

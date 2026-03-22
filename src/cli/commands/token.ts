@@ -232,7 +232,6 @@ export class TokenCommand extends Command {
     try {
       // Get wallet
       const wallet = walletManager.getWallet(walletName);
-      const recipientSecret = walletManager.getSecretKey(walletName);
 
       console.log(`Receiving to wallet: ${wallet.name}`);
 
@@ -253,6 +252,9 @@ export class TokenCommand extends Command {
         proof: transferPkg.proof,
         ownershipProof: transferPkg.ownershipProof ? Crypto.fromHex(transferPkg.ownershipProof) : undefined
       };
+
+      // Derive a unique secret for this token (prevents linking tokens in the same wallet)
+      const recipientSecret = walletManager.deriveTokenSecret(pkg.tokenId, walletName);
 
       // Initialize infrastructure
       console.log('Initializing infrastructure...');
