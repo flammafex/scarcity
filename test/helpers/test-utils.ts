@@ -209,7 +209,7 @@ export async function checkServices() {
     { name: 'HyperToken Relay', url: TestConfig.hypertoken.relay, skip: true }, // WebSocket, can't easily check
     { name: 'Witness Gateway', url: `${TestConfig.witness.gateway}/v1/config` },
     { name: 'Freebird Issuer', url: `${TestConfig.freebird.issuer}/.well-known/issuer` },
-    { name: 'Freebird Verifier', url: `${TestConfig.freebird.verifier}/.well-known/issuer` }
+    { name: 'Freebird Verifier', url: `${TestConfig.freebird.verifier}/.well-known/verifier` }
   ];
 
   const results: { [key: string]: boolean } = {};

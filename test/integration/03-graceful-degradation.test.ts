@@ -31,24 +31,15 @@ export async function runGracefulDegradationTest(): Promise<void> {
       verifierUrl: 'http://invalid-url-67890.example.com'
     });
 
-    // These should work in fallback mode
-    const { publicKey } = createTestKeyPair();
-    const blinded = await freebird.blind(publicKey);
-
-    runner.assert(
-      blinded.length === 32,
-      `Fallback mode should return 32-byte hash, got ${blinded.length} bytes. ` +
-      `Expected fallback mode with invalid URLs.`
-    );
-
-    const token = await freebird.issueToken(blinded);
+    // Admission issuance and verification should work in fallback mode.
+    const token = await freebird.issueAdmissionToken();
     runner.assert(
       token.length === 32,
-      `Fallback mode should issue 32-byte token, got ${token.length} bytes`
+      `Fallback mode should issue 32-byte admission token, got ${token.length} bytes`
     );
 
-    const valid = await freebird.verifyToken(token);
-    runner.assertEquals(valid, true, 'VerifyToken should return true in fallback');
+    const valid = await freebird.verifyAdmissionToken(token);
+    runner.assertEquals(valid, true, 'verifyAdmissionToken should return true in fallback');
   });
 
   // Test 2: Witness with invalid URL (should fall back)
@@ -158,26 +149,22 @@ export async function runGracefulDegradationTest(): Promise<void> {
       gatewayUrl: 'http://invalid-witness.example.com'
     });
 
-    const { publicKey, secret } = createTestKeyPair();
-
     // Should work regardless of which services are available
-    const blinded = await freebird.blind(publicKey);
+    const admission = await freebird.issueAdmissionToken();
     const attestation = await witness.timestamp('mixed-mode-test');
 
-    // Blinded value can be either:
-    // - 33 bytes (VOPRF mode if service is running)
-    // - 32 bytes (fallback mode if service is not running)
-    const blindedSize = blinded.length;
-    const isVoprfMode = blindedSize === 33;
-    const isFallbackMode = blindedSize === 32;
+    // Admission token can be V4 (service running) or 32-byte fallback.
+    const admissionSize = admission.length;
+    const isVoprfMode = admission[0] === 0x04;
+    const isFallbackMode = admissionSize === 32;
 
     runner.assert(
       isVoprfMode || isFallbackMode,
-      `Blinding should work in either mode: 32 bytes (fallback) or 33 bytes (VOPRF), got ${blindedSize} bytes. ` +
-      `Mode detected: ${isVoprfMode ? 'VOPRF (Freebird available)' : isFallbackMode ? 'Fallback (Freebird unavailable)' : 'Unknown'}`
+      `Admission should work in either mode: 32 bytes (fallback) or V4 token, got ${admissionSize} bytes. ` +
+      `Mode detected: ${isVoprfMode ? 'V4 (Freebird available)' : isFallbackMode ? 'Fallback (Freebird unavailable)' : 'Unknown'}`
     );
 
-    console.log(`  ℹ️  Mixed mode - Freebird: ${isVoprfMode ? 'Connected (VOPRF)' : 'Unavailable (Fallback)'}, Witness: Unavailable (Fallback)`);
+    console.log(`  ℹ️  Mixed mode - Freebird: ${isVoprfMode ? 'Connected (V4 admission)' : 'Unavailable (Fallback)'}, Witness: Unavailable (Fallback)`);
 
     runner.assert(attestation.signatures.length > 0, 'Timestamping should work');
   });

@@ -171,7 +171,7 @@ Track activity across different Scarcity federations
 - Peer counts and network metrics
 
 **What's Private:**
-- Sender/recipient identities (preserved by Freebird)
+- Sender/recipient identities (preserved by Scarcity commitments and Freebird admission privacy)
 - Token amounts (not stored in nullifiers)
 - Transaction linkability (nullifiers are unlinkable)
 

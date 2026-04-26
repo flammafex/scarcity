@@ -165,9 +165,9 @@ const gossip = new NullifierGossip({
 
 ---
 
-### Layer 3: Freebird (Economic Layer)
+### Layer 3: Scarcity Ownership + Freebird Admission
 
-**Sybil Resistance** - The root solution that makes spam economically infeasible.
+**Ownership and Admission** - Scarcity proves token ownership; Freebird makes unauthorized admission economically constrained.
 
 #### 3.1 Token-Based Nullifier Generation
 
@@ -178,19 +178,20 @@ nullifier = SHA-256(secret || tokenId)
 ```
 
 To generate a valid nullifier that passes Witness verification, an attacker needs:
-1. A valid token from Freebird (requires passing Sybil resistance)
-2. Knowledge of the token's secret (obtained via VOPRF)
+1. A valid Scarcity token ID and secret
+2. A Scarcity ownership proof bound to the nullifier when required
+3. A valid Freebird admission token when the validator requires authorization
 
 **Benefits**:
-- Attacker cannot easily get 1 million tokens from Freebird
-- Rate limiting or invitation-only issuance on Freebird server prevents mass token acquisition
+- Attacker cannot cheaply manufacture Scarcity ownership proofs for real token state
+- Rate limiting or invitation-only issuance on Freebird server prevents mass admission abuse
 - Economic cost scales linearly with spam volume
 
 #### 3.2 Ownership Proof Verification (Optional)
 
 Located in: `src/gossip.ts`
 
-For **maximum spam resistance**, you can require every nullifier message to include a **Freebird Ownership Proof**:
+For **maximum spam resistance**, you can require every nullifier message to include a **Scarcity Ownership Proof**:
 
 ```typescript
 const gossip = new NullifierGossip({
@@ -200,14 +201,14 @@ const gossip = new NullifierGossip({
 ```
 
 **How it works**:
-- Each gossip message must include `ownershipProof` (cryptographic proof of token ownership)
-- Attacker must perform expensive VOPRF operation for each spam message
+- Each gossip message must include `ownershipProof` (cryptographic proof of Scarcity token ownership)
+- Attacker must know the token secret for each spam message
 - Significantly slower than just generating random hashes
 
 **Benefits**:
-- Forces attacker to use valid Freebird tokens for spam
+- Forces attacker to use valid Scarcity token state for spam
 - Makes spam **as expensive as legitimate transfers**
-- Reduces spam to economic denial-of-service (which is rate-limited by Freebird)
+- Reduces spam to economic denial-of-service, with Freebird limiting admission volume
 
 **Trade-off**: Increases bandwidth and verification overhead for all messages. Recommended only for high-security deployments.
 
@@ -228,18 +229,18 @@ SYBIL_COMBINED_MECHANISMS=progressive_trust,proof_of_diversity
 
 | Mechanism | Description |
 |-----------|-------------|
-| `progressive_trust` | New users start with limited issuance, limits increase over time |
+| `progressive_trust` | New users start with limited admission, limits increase over time |
 | `proof_of_diversity` | Requires proof of unique identity signals (device, network, behavior) |
 
-**Combined mode `and`**: User must satisfy ALL mechanisms to receive tokens. This provides layered protection:
+**Combined mode `and`**: User must satisfy ALL mechanisms to receive admission credentials. This provides layered protection:
 
 1. **Progressive trust** prevents burst attacks from new identities
 2. **Proof of diversity** prevents Sybil attacks from single actors with many identities
 
 **Why this matters for Scarcity:**
-- Token issuance is the economic root of the system
-- Unlimited issuance would enable spam attacks and inflation
-- Combined resistance makes mass token acquisition prohibitively difficult
+- Scarcity token state is the economic root of the system
+- Unlimited admission would enable spam attacks against validators and gossip peers
+- Combined resistance makes mass unauthorized operation submission prohibitively difficult
 
 **Alternative modes:**
 - `or`: User satisfies ANY mechanism (more permissive)
@@ -324,8 +325,8 @@ const adapter = new HyperTokenAdapter({
 - **Result**: Attack becomes expensive and slow
 
 ### With All Layers (Network + Validation + Economic)
-- **Cost**: Attacker needs 1M valid Freebird tokens + PoW computation
-- **Limit**: Freebird Sybil resistance limits token acquisition
+- **Cost**: Attacker needs 1M valid Scarcity token states, ownership proofs, admission tokens, and PoW computation
+- **Limit**: Scarcity ownership checks and Freebird Sybil resistance limit abuse
 - **Result**: Attack becomes economically infeasible
 
 ---
@@ -361,7 +362,7 @@ console.log(`Nullifiers: ${stats.nullifierCount}, Peers: ${stats.peerCount}, Act
 1. **Adaptive PoW Difficulty**: Automatically increase difficulty during attack
 2. **Peer Reputation Persistence**: Save scores across restarts
 3. **Distributed Banlist**: Share malicious peer IDs across network
-4. **Freebird Rate Limiting Integration**: Query Freebird for token issuance rate
+4. **Freebird Admission Metrics**: Track Freebird admission-token issuance and verifier rejection rates
 5. **Machine Learning**: Detect spam patterns using ML
 
 ---
@@ -588,115 +589,42 @@ for (const [subnet, count] of stats) {
 
 ---
 
-## 4. MPC Threshold Issuance (Anti-Inflation)
+## 4. Scarcity Economic State (Anti-Inflation)
 
-**Vulnerability**: Without a public ledger, there's no way to audit total supply. A compromised Freebird issuer key could mint unlimited tokens, causing "invisible inflation" undetectable by users.
+**Vulnerability**: Without a public ledger, there's no way to audit total supply. A compromised Scarcity economic authority could create invalid supply, causing "invisible inflation" undetectable by users.
 
-**Solution**: Multi-Party Computation (MPC) threshold issuance splits the issuer key across multiple servers. Clients aggregate partial signatures locally using Lagrange interpolation.
+**Solution**: Scarcity keeps token IDs, amounts, source creation timestamps, ownership proofs, and split/merge arithmetic in its own protocol state. Witness timestamps make this state auditable, and validators reject transfers whose `sourceCreatedAt` is outside the demurrage window. Freebird admission credentials are not accepted as economic state.
 
 ### Configuration
 
 ```typescript
-// Single issuer (backward compatible, no MPC)
-const freebird = new FreebirdAdapter({
+const auth = new FreebirdAdapter({
   issuerEndpoints: ['https://issuer.example.com'],
   verifierUrl: 'https://verifier.example.com'
 });
 
-// Multi-issuer MPC with 3 servers (recommended)
-const freebird = new FreebirdAdapter({
-  issuerEndpoints: [
-    'https://issuer1.example.com',
-    'https://issuer2.example.com',
-    'https://issuer3.example.com'
-  ],
-  verifierUrl: 'https://verifier.example.com'
-});
-
-// High-security: 5-of-5 threshold
-const freebird = new FreebirdAdapter({
-  issuerEndpoints: [
-    'https://issuer1.example.com',
-    'https://issuer2.example.com',
-    'https://issuer3.example.com',
-    'https://issuer4.example.com',
-    'https://issuer5.example.com'
-  ],
-  verifierUrl: 'https://verifier.example.com'
+const validator = new TransferValidator({
+  auth,
+  gossip,
+  witness,
+  maxTokenAge: DEFAULT_TOKEN_VALIDITY_MS
 });
 ```
 
 ### How It Works
 
-**Trusted Dealer Setup** (Phase 1 implementation):
-1. Key dealer splits issuer secret key k into shares: k₁, k₂, k₃
-2. Each server receives one share
-3. Shares satisfy: k = λ₁·k₁ + λ₂·k₂ + λ₃·k₃ (where λᵢ are Lagrange coefficients)
+1. Minted or received Scarcity tokens persist `createdAt`.
+2. Spend packages carry `sourceCreatedAt` and bind it into the Witness-covered transfer hash.
+3. Validators reject ordinary transfers whose source token was older than the validity window at spend time.
+4. Receive paths for transfer, split, merge, multiparty, HTLC, and bridge flows reject expired source timestamps before creating refreshed tokens.
+5. Freebird V4 admission tokens are verified separately and cannot renew or create Scarcity economic state.
 
-**Token Issuance Flow**:
-1. **Client**: Blinds recipient public key → A = H(pubkey) · r
-2. **Broadcast**: Sends blinded element to all issuers in parallel
-3. **Issuers**: Each server i computes partial signature Bᵢ = A · kᵢ
-4. **Verify**: Client verifies DLEQ proof for each partial signature
-5. **Threshold**: Client waits for majority (⌈n/2⌉) valid responses
-6. **Aggregate**: Client computes final signature using Lagrange interpolation:
-   ```
-   B = Σ(λᵢ · Bᵢ)  where λᵢ = ∏(j≠i) (xⱼ / (xⱼ - xᵢ)) mod N
-   ```
-7. **Finalize**: Client uses aggregated B as the final token
+### Security Guarantees
 
-### Cryptographic Properties
-
-**P-256 VOPRF with Threshold Cryptography**:
-- Each issuer has key share kᵢ, public key Qᵢ = G · kᵢ
-- Partial evaluation: Bᵢ = A · kᵢ (where A is blinded element)
-- DLEQ proof proves: log_G(Qᵢ) = log_A(Bᵢ)
-- Aggregation uses Lagrange interpolation in scalar field mod N
-- Final point: B = A · k (where k = Σλᵢ·kᵢ)
-
-**Security Guarantees**:
-- **Byzantine Fault Tolerance**: Tolerates up to ⌊n/2⌋ malicious servers
-- **No Single Point of Failure**: No single server can inflate supply alone
-- **Immediate Verification**: Each partial signature verified with DLEQ proof
-- **Privacy Preserved**: Client aggregates locally without revealing input
-- **Backward Compatible**: Single issuer works as before (no aggregation)
-
-### Benefits
-
-✅ **Inflation Resistance**: Requires collusion of multiple servers to inflate supply
-✅ **Fault Tolerance**: Continues working if some servers are offline
-✅ **Proof Verification**: Invalid partial signatures detected immediately
-✅ **Local Aggregation**: Client controls the final token construction
-✅ **Graceful Degradation**: Warns when below threshold but proceeds with available responses
-
-### Example Output
-
-```
-[Freebird] MPC threshold mode: 3 issuers
-[Freebird] Connected to 3/3 issuers
-[Freebird] Nullifier check: Broadcasting to 3 issuers...
-[Freebird] ✅ VOPRF token issued and aggregated (3/3 issuers)
-```
-
-**Warning output when below threshold:**
-```
-[Freebird] MPC threshold mode: 3 issuers
-[Freebird] Connected to 2/3 issuers
-[Freebird] ⚠️ Only 2/3 valid responses, threshold is 2. Proceeding with available responses.
-[Freebird] ✅ VOPRF token issued and aggregated (2/3 issuers)
-```
-
-### Server Response Format
-
-Each issuer returns:
-```json
-{
-  "token": "base64url_encoded_token",
-  "index": 1  // Server's key share index (1-based)
-}
-```
-
-The token format is: `[ A (33 bytes) | Bᵢ (33 bytes) | DLEQ Proof (64 bytes) ]`
+- **Demurrage enforcement**: Expired tokens cannot be refreshed by presenting a fresh Freebird admission token.
+- **State ownership**: Amounts, token IDs, source timestamps, nullifiers, and ownership proofs are Scarcity protocol fields.
+- **Auditability**: Witness proofs cover the source timestamp for ordinary transfers and order every spend.
+- **Admission separation**: Freebird can deny or allow infrastructure access, but does not decide Scarcity supply.
 
 ---
 
@@ -739,7 +667,7 @@ for (const peer of outboundPeers) {
 
 // 4. Validator with high confidence threshold
 const validator = new TransferValidator({
-  freebird,
+  auth,
   gossip,
   witness,
   waitTime: 5000,
@@ -751,7 +679,7 @@ const validator = new TransferValidator({
 // ✅ Eclipse attacks (outbound peer preference)
 // ✅ Sybil attacks (subnet diversity + peer scoring)
 // ✅ Spam attacks (PoW + rate limiting from previous layers)
-// ✅ Invisible inflation (MPC threshold issuance)
+// ✅ Expired-token refresh (Scarcity source timestamp checks)
 ```
 
 ### Security Monitoring
@@ -791,7 +719,7 @@ setInterval(() => {
 ✅ **Single Point of Failure (Gateway)**: Solved with multi-gateway quorum
 ✅ **Eclipse Attack (Gossip Layer)**: Mitigated with outbound peer preference
 ✅ **Sybil Attack (Gossip Layer)**: Partially mitigated with subnet diversity checks
-✅ **Invisible Inflation (Economic Layer)**: Solved with MPC threshold issuance
+✅ **Expired-Token Refresh (Economic Layer)**: Mitigated with Scarcity source timestamp checks
 
 ### Remaining Challenges
 
@@ -799,7 +727,7 @@ These require more complex solutions and are documented for future development:
 
 #### 1. Traffic Analysis & Metadata Leakage
 
-**Vulnerability**: While Tor hides IPs and VOPRF hides identity, transaction graph analysis could correlate transfers.
+**Vulnerability**: While Tor hides IPs and Freebird V4 hides admission identity, transaction graph analysis could correlate transfers.
 
 **Future Solutions**:
 - Fixed Denominations: Force all tokens to standard values (1, 10, 100) like Monero

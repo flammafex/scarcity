@@ -109,7 +109,7 @@ Secret key export is protected by a 4-digit PIN:
 
 Click the info button next to "Your Tokens" to see how Scarcity protects privacy:
 
-- **Anonymous Issuance**: Freebird VOPRF blinds requests
+- **Anonymous Admission**: Freebird V4 private tokens authorize operations without carrying Scarcity economic state
 - **Unlinkable Transfers**: Nullifiers can't be correlated
 - **No Addresses**: Bearer tokens, possession = ownership
 - **E2E Encryption**: All peer communication encrypted

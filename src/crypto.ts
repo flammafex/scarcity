@@ -70,7 +70,6 @@ export class Crypto {
   }
   /**
    * Generate a commitment to recipient public key
-   * In production this would use Freebird's blinding
    */
   static async createCommitment(publicKey: Uint8Array): Promise<Uint8Array> {
     const nonce = this.randomBytes(32);
@@ -82,6 +81,7 @@ export class Crypto {
   static hashTransferPackage(pkg: {
     tokenId: string;
     amount: number;
+    sourceCreatedAt?: number;
     commitment: Uint8Array;
     authToken?: Uint8Array;
     nullifier: Uint8Array;
@@ -92,6 +92,9 @@ export class Crypto {
       pkg.commitment,
       pkg.nullifier
     ];
+    if (pkg.sourceCreatedAt !== undefined) {
+      inputs.push(pkg.sourceCreatedAt);
+    }
     // Include authToken in the hash when present so the Witness proof
     // covers the authorization token, preventing token swapping attacks.
     if (pkg.authToken) {

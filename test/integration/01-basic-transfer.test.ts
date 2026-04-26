@@ -107,18 +107,15 @@ export async function runBasicTransferTest(): Promise<void> {
     runner.assertEquals(transferPkg.amount, 100, 'Amount should be 100');
     runner.assert(transferPkg.nullifier.length === 32, 'Nullifier should be 32 bytes');
 
-    // Commitment can be 32 bytes (fallback hash) or 33 bytes (VOPRF compressed P-256 point)
+    // Commitment is Scarcity-owned recipient state; Freebird only supplies auth.
     const commitmentSize = transferPkg.commitment.length;
-    const isVoprfMode = commitmentSize === 33;
-    const isFallbackMode = commitmentSize === 32;
 
     runner.assert(
-      isVoprfMode || isFallbackMode,
-      `Commitment should be 32 bytes (fallback) or 33 bytes (VOPRF), got ${commitmentSize} bytes. ` +
-      `Mode: ${isVoprfMode ? 'VOPRF (Freebird connected)' : isFallbackMode ? 'Fallback (Freebird unavailable)' : 'Unknown'}`
+      commitmentSize === 32,
+      `Commitment should be 32 bytes (Scarcity commitment), got ${commitmentSize} bytes.`
     );
 
-    console.log(`  ℹ️  Freebird mode: ${isVoprfMode ? 'VOPRF (33-byte compressed P-256 point)' : 'Fallback (32-byte hash)'}`);
+    console.log('  ℹ️  Freebird mode: admission/auth only');
 
     runner.assert(transferPkg.proof, 'Package should have proof');
 

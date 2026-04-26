@@ -9,17 +9,20 @@
  */
 
 import { DEFAULT_TOKEN_VALIDITY_MS } from './constants.js';
+import { Crypto } from './crypto.js';
 import type {
   TransferPackage,
   ValidationResult,
   ConfidenceParams,
-  FreebirdClient,
+  AdmissionClient,
   WitnessClient,
   GossipNetwork
 } from './types.js';
 
 export interface ValidatorConfig {
-  readonly freebird: FreebirdClient;
+  readonly auth?: AdmissionClient;
+  /** @deprecated Use auth. Freebird is an admission provider, not economic state. */
+  readonly freebird?: AdmissionClient;
   readonly gossip: GossipNetwork;
   readonly witness: WitnessClient;
   readonly waitTime?: number; // milliseconds
@@ -28,7 +31,7 @@ export interface ValidatorConfig {
 }
 
 export class TransferValidator {
-  private readonly freebird: FreebirdClient;
+  private readonly auth: AdmissionClient;
   private readonly gossip: GossipNetwork;
   private readonly witness: WitnessClient;
   private readonly waitTime: number;
@@ -36,7 +39,10 @@ export class TransferValidator {
   private readonly maxTokenAge: number;
 
   constructor(config: ValidatorConfig) {
-    this.freebird = config.freebird;
+    this.auth = config.auth ?? config.freebird!;
+    if (!this.auth) {
+      throw new Error('TransferValidator requires an admission/auth client');
+    }
     this.gossip = config.gossip;
     this.witness = config.witness;
     this.waitTime = config.waitTime ?? 5000; // 5 seconds default
@@ -44,6 +50,47 @@ export class TransferValidator {
     // Default to ~576 days (~1.58 years). See constants.ts for details.
     // Must match or be shorter than NullifierGossip's maxNullifierAge.
     this.maxTokenAge = config.maxTokenAge ?? DEFAULT_TOKEN_VALIDITY_MS;
+  }
+
+  private checkSourceAge(pkg: TransferPackage): ValidationResult | null {
+    if (typeof pkg.sourceCreatedAt !== 'number' || !Number.isFinite(pkg.sourceCreatedAt)) {
+      return {
+        valid: false,
+        confidence: 0,
+        reason: 'Missing Scarcity source creation timestamp'
+      };
+    }
+
+    const sourceAgeAtSpend = pkg.proof.timestamp - pkg.sourceCreatedAt;
+    if (sourceAgeAtSpend < -300_000) {
+      return {
+        valid: false,
+        confidence: 0,
+        reason: 'Invalid Scarcity source creation timestamp'
+      };
+    }
+
+    if (sourceAgeAtSpend > this.maxTokenAge) {
+      return {
+        valid: false,
+        confidence: 0,
+        reason: `Source token expired before spend. Age (${(sourceAgeAtSpend / 3600000).toFixed(1)}h) exceeds limit.`
+      };
+    }
+
+    return null;
+  }
+
+  private checkPackageHash(pkg: TransferPackage): ValidationResult | null {
+    const expectedHash = Crypto.hashTransferPackage(pkg);
+    if (pkg.proof.hash !== expectedHash) {
+      return {
+        valid: false,
+        confidence: 0,
+        reason: 'Witness proof hash does not match transfer package'
+      };
+    }
+    return null;
   }
 
   /**
@@ -56,8 +103,8 @@ export class TransferValidator {
    * @returns Validation result with confidence score
    */
   async validateTransfer(pkg: TransferPackage): Promise<ValidationResult> {
-  	// Step 1: Enforce Rolling Validity Window
-  	const age = Date.now() - pkg.proof.timestamp;
+    // Step 1: Enforce Rolling Validity Window
+    const age = Date.now() - pkg.proof.timestamp;
     if (age > this.maxTokenAge) {
       return {
         valid: false,
@@ -66,20 +113,23 @@ export class TransferValidator {
       };
     }
 
-    // Step 2: Verify Freebird authorization token
-    if (!pkg.authToken) {
-      return {
-        valid: false,
-        confidence: 0,
-        reason: 'Missing required Freebird authorization token'
-      };
+    const hashFailure = this.checkPackageHash(pkg);
+    if (hashFailure) {
+      return hashFailure;
     }
-    const authValid = await this.freebird.verifyToken(pkg.authToken);
-    if (!authValid) {
+
+    const sourceAgeFailure = this.checkSourceAge(pkg);
+    if (sourceAgeFailure) {
+      return sourceAgeFailure;
+    }
+
+    // Step 2: Verify the Witness attestation itself before consuming admission.
+    const proofValid = await this.witness.verify(pkg.proof);
+    if (!proofValid) {
       return {
         valid: false,
         confidence: 0,
-        reason: 'Invalid Freebird authorization token'
+        reason: 'Invalid Witness attestation'
       };
     }
 
@@ -103,7 +153,7 @@ export class TransferValidator {
     // Step 4: Witness federation check (slower, deterministic)
     const witnessConfidence = await this.witness.checkNullifier(pkg.nullifier);
 
-    if (witnessConfidence > 0) {
+    if (witnessConfidence >= 1) {
       // Nullifier in Witness = proven double-spend
       return {
         valid: false,
@@ -112,13 +162,21 @@ export class TransferValidator {
       };
     }
 
-    // Step 5: Verify the Witness attestation itself
-    const proofValid = await this.witness.verify(pkg.proof);
-    if (!proofValid) {
+    // Step 5: Verify Freebird admission token. This can consume a single-use
+    // credential, so it happens only after Scarcity economic checks pass.
+    if (!pkg.authToken) {
       return {
         valid: false,
         confidence: 0,
-        reason: 'Invalid Witness attestation'
+        reason: 'Missing required Freebird authorization token'
+      };
+    }
+    const authValid = await this.auth.verifyAdmissionToken(pkg.authToken);
+    if (!authValid) {
+      return {
+        valid: false,
+        confidence: 0,
+        reason: 'Invalid Freebird authorization token'
       };
     }
 
@@ -208,6 +266,16 @@ export class TransferValidator {
    * @returns Validation result
    */
   async fastValidate(pkg: TransferPackage): Promise<ValidationResult> {
+    const hashFailure = this.checkPackageHash(pkg);
+    if (hashFailure) {
+      return hashFailure;
+    }
+
+    const sourceAgeFailure = this.checkSourceAge(pkg);
+    if (sourceAgeFailure) {
+      return sourceAgeFailure;
+    }
+
     const gossipConfidence = await this.gossip.checkNullifier(pkg.nullifier);
     const DOUBLE_SPEND_THRESHOLD = 0.5;
 

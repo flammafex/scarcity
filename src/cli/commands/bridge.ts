@@ -104,7 +104,8 @@ export class BridgeCommand extends Command {
           id: storedToken.id,
           amount: storedToken.amount,
           secret: Crypto.fromHex(storedToken.secretKey),
-          spent: storedToken.spent
+          spent: storedToken.spent,
+          createdAt: storedToken.created
         },
         sourceFreebird,
         sourceWitness,
@@ -144,10 +145,12 @@ export class BridgeCommand extends Command {
       console.log(JSON.stringify({
         type: 'bridge',
         sourceTokenId: bridgePkg.sourceTokenId,
+        sourceCreatedAt: bridgePkg.sourceCreatedAt,
         sourceFederation: bridgePkg.sourceFederation,
         targetFederation: bridgePkg.targetFederation,
         amount: bridgePkg.amount,
         commitment: Crypto.toHex(bridgePkg.commitment),
+        authToken: bridgePkg.authToken ? Crypto.toHex(bridgePkg.authToken) : undefined,
         nullifier: Crypto.toHex(bridgePkg.nullifier),
         sourceProof: bridgePkg.sourceProof,
         targetProof: bridgePkg.targetProof,
@@ -245,10 +248,12 @@ export class BridgeCommand extends Command {
       const token = await bridge.receiveBridged(
         {
           sourceTokenId: pkg.sourceTokenId,
+          sourceCreatedAt: pkg.sourceCreatedAt,
           sourceFederation: pkg.sourceFederation,
           targetFederation: pkg.targetFederation,
           amount: pkg.amount,
           commitment: Crypto.fromHex(pkg.commitment),
+          authToken: pkg.authToken ? Crypto.fromHex(pkg.authToken) : undefined,
           nullifier: Crypto.fromHex(pkg.nullifier),
           sourceProof: pkg.sourceProof,
           targetProof: pkg.targetProof,
@@ -265,7 +270,7 @@ export class BridgeCommand extends Command {
         amount: persisted.amount,
         secretKey: Crypto.toHex(persisted.secret),
         wallet: wallet as string,
-        created: Date.now(),
+        created: persisted.createdAt ?? Date.now(),
         spent: persisted.spent,
         metadata: {
           type: 'received',

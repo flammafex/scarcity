@@ -12,6 +12,7 @@ export { NullifierGossip } from './gossip.js';
 export { TransferValidator } from './validator.js';
 export { Crypto } from './crypto.js';
 export { FederationBridge } from './bridge.js';
+export { OwnershipProof } from './ownership.js';
 
 export { FreebirdAdapter } from './integrations/freebird.js';
 export { WitnessAdapter } from './integrations/witness.js';
@@ -35,6 +36,7 @@ export type {
   GossipMessage,
   ValidationResult,
   ConfidenceParams,
+  AdmissionClient,
   FreebirdClient,
   WitnessClient,
   GossipNetwork,

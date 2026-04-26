@@ -129,7 +129,7 @@ export class TokenCommand extends Command {
         amount: persisted.amount,
         secretKey: Crypto.toHex(persisted.secret),
         wallet: wallet.name,
-        created: Date.now(),
+        created: persisted.createdAt ?? Date.now(),
         spent: persisted.spent,
         metadata: {
           type: 'minted'
@@ -183,7 +183,8 @@ export class TokenCommand extends Command {
           id: storedToken.id,
           amount: storedToken.amount,
           secret,
-          spent: storedToken.spent
+          spent: storedToken.spent,
+          createdAt: storedToken.created
         },
         infra.freebird,
         infra.witness,
@@ -207,7 +208,9 @@ export class TokenCommand extends Command {
       console.log(JSON.stringify({
         tokenId: transferPkg.tokenId,
         amount: transferPkg.amount,
+        sourceCreatedAt: transferPkg.sourceCreatedAt,
         commitment: Crypto.toHex(transferPkg.commitment),
+        authToken: transferPkg.authToken ? Crypto.toHex(transferPkg.authToken) : undefined,
         nullifier: Crypto.toHex(transferPkg.nullifier),
         proof: transferPkg.proof,
         ownershipProof: transferPkg.ownershipProof ? Crypto.toHex(transferPkg.ownershipProof) : undefined
@@ -247,7 +250,9 @@ export class TokenCommand extends Command {
       const pkg = {
         tokenId: transferPkg.tokenId,
         amount: transferPkg.amount,
+        sourceCreatedAt: transferPkg.sourceCreatedAt,
         commitment: Crypto.fromHex(transferPkg.commitment),
+        authToken: transferPkg.authToken ? Crypto.fromHex(transferPkg.authToken) : undefined,
         nullifier: Crypto.fromHex(transferPkg.nullifier),
         proof: transferPkg.proof,
         ownershipProof: transferPkg.ownershipProof ? Crypto.fromHex(transferPkg.ownershipProof) : undefined
@@ -279,7 +284,7 @@ export class TokenCommand extends Command {
         amount: persisted.amount,
         secretKey: Crypto.toHex(persisted.secret),
         wallet: wallet.name,
-        created: Date.now(),
+        created: persisted.createdAt ?? Date.now(),
         spent: persisted.spent,
         metadata: {
           type: 'received'
@@ -477,7 +482,8 @@ export class TokenCommand extends Command {
           id: storedToken.id,
           amount: storedToken.amount,
           secret,
-          spent: storedToken.spent
+          spent: storedToken.spent,
+          createdAt: storedToken.created
         },
         infra.freebird,
         infra.witness,
@@ -502,10 +508,12 @@ export class TokenCommand extends Command {
       console.log(JSON.stringify({
         sourceTokenId: splitPkg.sourceTokenId,
         sourceAmount: splitPkg.sourceAmount,
+        sourceCreatedAt: splitPkg.sourceCreatedAt,
         splits: splitPkg.splits.map(s => ({
           tokenId: s.tokenId,
           amount: s.amount,
-          commitment: Crypto.toHex(s.commitment)
+          commitment: Crypto.toHex(s.commitment),
+          authToken: s.authToken ? Crypto.toHex(s.authToken) : undefined
         })),
         nullifier: Crypto.toHex(splitPkg.nullifier),
         proof: splitPkg.proof,
@@ -564,7 +572,8 @@ export class TokenCommand extends Command {
           id: st.id,
           amount: st.amount,
           secret: Crypto.fromHex(st.secretKey),
-          spent: st.spent
+          spent: st.spent,
+          createdAt: st.created
         },
         infra.freebird,
         infra.witness,
@@ -590,9 +599,11 @@ export class TokenCommand extends Command {
         targetTokenId: mergePkg.targetTokenId,
         targetAmount: mergePkg.targetAmount,
         commitment: Crypto.toHex(mergePkg.commitment),
+        authToken: mergePkg.authToken ? Crypto.toHex(mergePkg.authToken) : undefined,
         sources: mergePkg.sources.map(s => ({
           tokenId: s.tokenId,
           amount: s.amount,
+          createdAt: s.createdAt,
           nullifier: Crypto.toHex(s.nullifier)
         })),
         proof: mergePkg.proof,
@@ -656,7 +667,8 @@ export class TokenCommand extends Command {
           id: storedToken.id,
           amount: storedToken.amount,
           secret,
-          spent: storedToken.spent
+          spent: storedToken.spent,
+          createdAt: storedToken.created
         },
         infra.freebird,
         infra.witness,
@@ -678,10 +690,12 @@ export class TokenCommand extends Command {
       console.log(JSON.stringify({
         sourceTokenId: multiPartyPkg.sourceTokenId,
         sourceAmount: multiPartyPkg.sourceAmount,
+        sourceCreatedAt: multiPartyPkg.sourceCreatedAt,
         recipients: multiPartyPkg.recipients.map(r => ({
           publicKey: Crypto.toHex(r.publicKey.bytes),
           amount: r.amount,
           commitment: Crypto.toHex(r.commitment),
+          authToken: r.authToken ? Crypto.toHex(r.authToken) : undefined,
           tokenId: r.tokenId
         })),
         nullifier: Crypto.toHex(multiPartyPkg.nullifier),

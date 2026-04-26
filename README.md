@@ -2,7 +2,7 @@
 
 **Scarcity** is a Chaumian e-cash protocol. It provides private, bearer-instrument digital tokens with double-spend prevention — without blockchains, mining, or global ledgers.
 
-Freebird issuers act as mints (controlling who can issue tokens and under what policy), Witness federations provide ordering and auditability, and gossip networks propagate spent-token nullifiers for fast double-spend detection.
+Scarcity owns token IDs, amounts, secrets, ownership proofs, split/merge arithmetic, and lazy demurrage state directly. Freebird is used only as privacy-preserving admission/authorization infrastructure; Witness federations provide ordering and auditability, and gossip networks propagate spent-token nullifiers for fast double-spend detection.
 
 ## Quick Start (Docker)
 
@@ -16,11 +16,11 @@ This runs the full stack (Freebird, Witness, HyperToken) and integration tests. 
 
 ## Features
 
-- **Chaumian privacy** — Freebird VOPRF blind signatures make issuance and spending unlinkable
+- **Privacy-preserving admission** — Freebird V4 private tokens authorize Scarcity operations without carrying economic state
 - **No blockchain** — Nullifier gossip replaces global ledger consensus
 - **No fees** — No gas, mining rewards, or staking
 - **No addresses** — Bearer tokens with no on-chain identity
-- **Issuer-as-mint** — Freebird issuers control token policy; vendors choose which issuers to trust
+- **Scarcity-owned economics** — Token supply, amounts, ownership, and demurrage are Scarcity state
 - **Token operations** — Split, merge, multi-party transfers, HTLCs, cross-federation bridging
 - **Auditability** — Witness attestations can be anchored to Ethereum for tamper-proof history
 - **Lazy demurrage** — Tokens expire after ~1.5 years if not transferred (configurable)
@@ -31,19 +31,17 @@ Scarcity separates three orthogonal concerns:
 
 | Concern | Primitive | Role in e-cash |
 |---------|-----------|----------------|
-| **Identity** | Freebird (VOPRF) | Mint authority — issues blind-signed tokens, controls policy |
+| **Admission** | Freebird V4 private tokens | Anonymous authorization only; no Scarcity amount, owner, or demurrage state |
 | **Time** | Witness (threshold sigs) | Ordering — timestamps transfers, anchors to external systems |
 | **State** | HyperToken (gossip) | Propagation — broadcasts nullifiers for double-spend detection |
 
-The software provides cryptographic guarantees (privacy, unlinkability, double-spend detection). The Freebird issuer operator establishes economic policy (who can mint, how much, backed by what). The Witness federation makes that policy auditable.
-
-This follows the Chaumian model: the protocol doesn't enforce supply limits — the mint does. Vendors choose which mints they trust, just as merchants choose which banks' cards they accept.
+The software provides cryptographic guarantees (privacy, unlinkability, double-spend detection). Scarcity enforces token arithmetic and demurrage locally and in transfer envelopes; Freebird only gates access to Scarcity infrastructure.
 
 ## Architecture
 
 | Component | Purpose | Link |
 |-----------|---------|------|
-| **Freebird** | Anonymous authorization via P-256 VOPRF blind signatures | [git.carpocratian.org/sibyl/freebird](https://git.carpocratian.org/sibyl/freebird) |
+| **Freebird** | Anonymous authorization via V4 private tokens | [git.carpocratian.org/sibyl/freebird](https://git.carpocratian.org/sibyl/freebird) |
 | **Witness** | Threshold timestamping (Ed25519/BLS12-381) with external anchoring | [git.carpocratian.org/sibyl/witness](https://git.carpocratian.org/sibyl/witness) |
 | **HyperToken** | P2P networking with WebSocket/WebRTC | [git.carpocratian.org/sibyl/hypertoken](https://git.carpocratian.org/sibyl/hypertoken) |
 
@@ -51,7 +49,7 @@ This follows the Chaumian model: the protocol doesn't enforce supply limits — 
 ┌─────────────────────────────────────────────────────┐
 │  Token Layer                                        │
 │  • Mint, transfer, split, merge, HTLC, bridge       │
-│  • Freebird VOPRF authorization + ownership proofs  │
+│  • Scarcity economic state + ownership proofs       │
 └─────────────────────────────────────────────────────┘
                          ↓
 ┌─────────────────────────────────────────────────────┐
@@ -63,7 +61,7 @@ This follows the Chaumian model: the protocol doesn't enforce supply limits — 
                          ↓
 ┌─────────────────────────────────────────────────────┐
 │  Validation Layer                                   │
-│  • Freebird auth token verification (single-use V3) │
+│  • Freebird V4 admission token verification         │
 │  • Gossip check: probabilistic (~10-50ms)           │
 │  • Witness check: deterministic (threshold signed)  │
 │  • Confidence scoring: peer count + witness + time  │
@@ -74,9 +72,9 @@ This follows the Chaumian model: the protocol doesn't enforce supply limits — 
 
 ### Token Lifecycle
 
-1. **Mint**: Issuer operator creates tokens (policy-dependent — could require deposit, proof of work, etc.)
-2. **Transfer**: Sender blinds a commitment via Freebird, obtains a VOPRF auth token, timestamps via Witness, broadcasts nullifier to gossip
-3. **Validate**: Recipient verifies the auth token (single-use V3), checks gossip for double-spend, verifies Witness attestation, computes confidence score
+1. **Mint**: Scarcity creates a bearer token with local token ID, amount, secret, and creation timestamp
+2. **Transfer**: Sender creates a Scarcity recipient commitment, obtains a Freebird V4 admission token, timestamps via Witness, broadcasts nullifier to gossip
+3. **Validate**: Recipient verifies the admission token, checks Scarcity source age, checks gossip for double-spend, verifies Witness attestation, computes confidence score
 4. **Receive**: If validation passes, recipient accepts the bearer token with a unique derived secret
 
 ### Double-Spend Prevention
@@ -88,33 +86,33 @@ This follows the Chaumian model: the protocol doesn't enforce supply limits — 
 
 No global ledger required. Nullifiers are single-use markers that prove a token was spent.
 
-### VOPRF Flow (Freebird)
+### Admission Flow (Freebird V4)
 
 ```
 Sender                    Freebird Issuer              Freebird Verifier
   │                            │                             │
-  │── blind(publicKey) ───────→│                             │
+  │── blind(verifier scope) ──→│                             │
   │                            │── evaluate(blinded) ──→     │
   │←── token + DLEQ proof ────│                             │
   │                            │                             │
   │── unblind (local) ────→    │                             │
-  │── build V3 redemption ──→  │                             │
+  │── build V4 admission ───→  │                             │
   │                            │                             │
   │                    (later, at recipient)                  │
   │                            │                             │
-  │── verifyToken(V3) ────────────────────────────────────→ │
+  │── verifyAdmissionToken(V4) ───────────────────────────→ │
   │←── ok (token consumed) ──────────────────────────────── │
 ```
 
-V3 tokens are self-contained and single-use — consumed on first verification. The token embeds the issuer ID, so vendors know which mint issued it.
+V4 tokens are self-contained and single-use. They authorize the Scarcity operation but do not include token IDs, amounts, owners, nullifiers, or demurrage timestamps.
 
 ## Privacy Model
 
 | Property | Mechanism |
 |----------|-----------|
-| **Anonymous issuance** | VOPRF blinds the commitment — issuer can't link issuance to spending |
+| **Anonymous admission** | Freebird V4 blinds the verifier-scoped admission request |
 | **Unlinkable transfers** | Nullifiers derived from secret + tokenId, not sender identity |
-| **Issuer-aware, not issuer-tracked** | V3 tokens identify the mint but not the user |
+| **Auth-aware, not economy-aware** | Freebird verifies authorization without learning Scarcity economic state |
 | **No addresses** | Tokens are bearer instruments (possession = ownership) |
 | **Per-token secrets** | Each received token derives a unique secret from the wallet master key |
 | **Network privacy** | Optional Tor integration for .onion services |
@@ -264,7 +262,7 @@ import {
 } from 'scarcity';
 
 // Initialize infrastructure
-const freebird = new FreebirdAdapter({
+const auth = new FreebirdAdapter({
   issuerEndpoints: ['http://localhost:8081'],
   verifierUrl: 'http://localhost:8082'
 });
@@ -283,9 +281,9 @@ await hypertoken.connect();
 const gossip = new NullifierGossip({ witness });
 hypertoken.getPeers().forEach(peer => gossip.addPeer(peer));
 
-// Create validator (requires freebird for V3 token verification)
+// Create validator (uses Freebird for V4 admission verification)
 const validator = new TransferValidator({
-  freebird,
+  auth,
   gossip,
   witness,
   waitTime: 5000,
@@ -293,13 +291,13 @@ const validator = new TransferValidator({
 });
 
 // Mint and transfer
-const token = ScarbuckToken.mint(100, freebird, witness, gossip);
+const token = ScarbuckToken.mint(100, auth, witness, gossip);
 const pkg = await token.transfer(recipientPublicKey);
 
 // Validate and receive
 const result = await validator.validateTransfer(pkg);
 if (result.valid) {
-  const received = await ScarbuckToken.receive(pkg, recipientSecret, freebird, witness, gossip);
+  const received = await ScarbuckToken.receive(pkg, recipientSecret, auth, witness, gossip);
 }
 ```
 
@@ -322,9 +320,9 @@ Scarcity uses HyperToken for P2P networking with:
 ### Protected Against
 
 - **Double-spending**: Nullifier sets + Witness timestamps + gossip proof validation
-- **Forgery**: Freebird's unforgeable VOPRF tokens with DLEQ proof verification (scalar range validated)
+- **Forgery**: Scarcity ownership proofs and Witness-covered transfer hashes; Freebird V4 admission tokens are verified separately
 - **Replay attacks**: Single-use nullifiers with timestamp binding; bridge replay protection via target-federation nullifier check
-- **Token swapping**: Auth tokens are included in the package hash covered by Witness proof
+- **Token swapping**: Auth tokens and Scarcity source timestamps are included in the package hash covered by Witness proof
 - **Rogue key attacks**: BLS key aggregation checks Proof-of-Possession when available
 - **Eclipse attacks**: Outbound peers weighted 3x higher in confidence scoring
 - **Spam/flooding**: Peer reputation scoring, rate limiting, optional PoW
@@ -337,11 +335,11 @@ Scarcity uses HyperToken for P2P networking with:
 - **Network correlation**: Timing analysis by observers. Use Tor.
 - **Quantum adversaries**: ECDLP-based cryptography (P-256)
 - **Legal seizure**: Bearer instruments have no account freeze mechanism
-- **Issuer misbehavior**: A trusted issuer can over-issue. Ethereum anchoring via Witness makes this auditable but not preventable at the protocol level.
+- **Issuer misbehavior**: Freebird authorization policy can be too loose, but it cannot mint Scarcity economic state by itself.
 
 ### Trust Assumptions
 
-- Freebird issuer enforces honest monetary policy
+- Scarcity operators enforce honest monetary policy and persistence of economic state
 - Gossip network has at least some honest peers
 - Witness federation threshold holds (< T collude)
 - Freebird issuer/verifier deployed on separate infrastructure (prevents timing attacks)
@@ -403,6 +401,6 @@ Apache License 2.0
 
 ## Related Projects
 
-- [Freebird](https://git.carpocratian.org/sibyl/freebird) - Anonymous authorization (VOPRF mint)
+- [Freebird](https://git.carpocratian.org/sibyl/freebird) - Anonymous authorization/admission
 - [HyperToken](https://git.carpocratian.org/sibyl/hypertoken) - P2P networking
 - [Witness](https://git.carpocratian.org/sibyl/witness) - Threshold timestamping with external anchoring

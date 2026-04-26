@@ -26,6 +26,8 @@ export interface Attestation {
 export interface TransferPackage {
   readonly tokenId: string;
   readonly amount: number;
+  /** Scarcity economic timestamp for the token being spent. */
+  readonly sourceCreatedAt: number;
   readonly commitment: Uint8Array;
   readonly authToken?: Uint8Array;
   readonly nullifier: Uint8Array;
@@ -36,6 +38,8 @@ export interface TransferPackage {
 export interface SplitPackage {
   readonly sourceTokenId: string;
   readonly sourceAmount: number;
+  /** Scarcity economic timestamp for the token being split. */
+  readonly sourceCreatedAt: number;
   readonly splits: Array<{
     tokenId: string;
     amount: number;
@@ -55,6 +59,8 @@ export interface MergePackage {
   readonly sources: Array<{
     tokenId: string;
     amount: number;
+    /** Scarcity economic timestamp for the source token. */
+    createdAt: number;
     nullifier: Uint8Array;
   }>;
   readonly proof: Attestation;
@@ -64,6 +70,8 @@ export interface MergePackage {
 export interface MultiPartyTransfer {
   readonly sourceTokenId: string;
   readonly sourceAmount: number;
+  /** Scarcity economic timestamp for the token being spent. */
+  readonly sourceCreatedAt: number;
   readonly recipients: Array<{
     publicKey: PublicKey;
     amount: number;
@@ -86,6 +94,8 @@ export interface HTLCCondition {
 export interface HTLCPackage {
   readonly tokenId: string;
   readonly amount: number;
+  /** Scarcity economic timestamp for the token being locked. */
+  readonly sourceCreatedAt: number;
   readonly commitment: Uint8Array;
   readonly authToken?: Uint8Array;
   readonly nullifier: Uint8Array;
@@ -97,6 +107,8 @@ export interface HTLCPackage {
 
 export interface BridgePackage {
   readonly sourceTokenId: string;
+  /** Scarcity economic timestamp for the token being bridged. */
+  readonly sourceCreatedAt: number;
   readonly sourceFederation: string;
   readonly targetFederation: string;
   readonly amount: number;
@@ -123,7 +135,7 @@ export interface GossipMessage {
   readonly nullifier?: Uint8Array;
   readonly proof?: Attestation;
   readonly timestamp: number;
-  readonly ownershipProof?: Uint8Array;  // Optional Freebird ownership proof for spam resistance
+  readonly ownershipProof?: Uint8Array;  // Optional Scarcity ownership proof for spam resistance
 }
 
 export interface ValidationResult {
@@ -140,25 +152,19 @@ export interface ConfidenceParams {
 
 // Integration interfaces for external services
 
-export interface FreebirdClient {
-  blind(publicKey: PublicKey): Promise<Uint8Array>;
-  issueToken(blindedValue: Uint8Array): Promise<Uint8Array>;
-  verifyToken(token: Uint8Array): Promise<boolean>;
+export interface AdmissionClient {
   /**
-   * Create a Schnorr signature-based ownership proof
-   * @param secret The secret key material
-   * @param binding Context binding (e.g., nullifier) to prevent replay attacks
-   * @returns 98-byte proof: P (33) || R (33) || s (32)
+   * Issue an authorization/admission credential for a Scarcity operation.
+   *
+   * The credential authorizes access to Scarcity infrastructure but carries no
+   * Scarcity economic state: no amount, token ID, owner, demurrage timestamp, or
+   * split/merge relationship.
    */
-  createOwnershipProof(secret: Uint8Array, binding: Uint8Array): Promise<Uint8Array>;
-  /**
-   * Verify a Schnorr ownership proof
-   * @param proof The 98-byte ownership proof
-   * @param binding Context binding that was used during creation
-   * @returns true if valid
-   */
-  verifyOwnershipProof(proof: Uint8Array, binding: Uint8Array): Promise<boolean>;
+  issueAdmissionToken(): Promise<Uint8Array>;
+  verifyAdmissionToken(token: Uint8Array): Promise<boolean>;
 }
+
+export interface FreebirdClient extends AdmissionClient {}
 
 export interface WitnessClient {
   timestamp(hash: string): Promise<Attestation>;

@@ -9,6 +9,7 @@
 
 import {
   ScarbuckToken,
+  Crypto,
   NullifierGossip,
   TransferValidator,
   FreebirdAdapter,
@@ -17,6 +18,7 @@ import {
 
 import type { PeerConnection, GossipMessage } from '../../src/types.js';
 import { TestRunner, createTestKeyPair, sleep, TestConfig } from '../helpers/test-utils.js';
+import { DEFAULT_TOKEN_VALIDITY_MS } from '../../src/constants.js';
 
 export async function runSecurityHardeningTest(): Promise<void> {
   const runner = new TestRunner();
@@ -53,6 +55,85 @@ export async function runSecurityHardeningTest(): Promise<void> {
       quorumThreshold: 2
     });
     runner.assert(true, 'Custom quorum threshold should work');
+  });
+
+  await runner.run('Expired Scarcity token cannot be transferred', async () => {
+    const freebird = new FreebirdAdapter({
+      issuerEndpoints: [TestConfig.freebird.issuer],
+      verifierUrl: TestConfig.freebird.verifier
+    });
+    const witness = new WitnessAdapter({
+      gatewayUrl: TestConfig.witness.gateway
+    });
+    const gossip = new NullifierGossip({ witness });
+    const recipient = createTestKeyPair();
+
+    const oldToken = ScarbuckToken.fromPersistentState(
+      {
+        id: 'expired-token',
+        amount: 1,
+        secret: createTestKeyPair().secret,
+        spent: false,
+        createdAt: Date.now() - DEFAULT_TOKEN_VALIDITY_MS - 1
+      },
+      freebird,
+      witness,
+      gossip
+    );
+
+    try {
+      await oldToken.transfer(recipient.publicKey);
+      throw new Error('Expired token transfer should have failed');
+    } catch (error: any) {
+      runner.assert(
+        error.message.includes('Token expired'),
+        `Expected expiration error, got ${error.message}`
+      );
+    } finally {
+      gossip.destroy();
+    }
+  });
+
+  await runner.run('Validator rejects stale Scarcity source timestamp', async () => {
+    const freebird = new FreebirdAdapter({
+      issuerEndpoints: [TestConfig.freebird.issuer],
+      verifierUrl: TestConfig.freebird.verifier
+    });
+    const witness = new WitnessAdapter({
+      gatewayUrl: TestConfig.witness.gateway
+    });
+    const gossip = new NullifierGossip({ witness });
+    const validator = new TransferValidator({
+      freebird,
+      gossip,
+      witness,
+      waitTime: 0,
+      minConfidence: 0
+    });
+
+    const token = ScarbuckToken.mint(1, freebird, witness, gossip);
+    const transfer = await token.transfer(createTestKeyPair().publicKey);
+    const sourceCreatedAt = transfer.proof.timestamp - DEFAULT_TOKEN_VALIDITY_MS - 1;
+    const forgedTransfer = {
+      ...transfer,
+      sourceCreatedAt,
+      proof: {
+        ...transfer.proof,
+        hash: Crypto.hashTransferPackage({
+          ...transfer,
+          sourceCreatedAt
+        })
+      }
+    };
+
+    const result = await validator.fastValidate(forgedTransfer);
+    runner.assertEquals(result.valid, false, 'Stale source timestamp should be rejected');
+    runner.assert(
+      result.reason?.includes('Source token expired') === true,
+      `Expected source expiration reason, got ${result.reason}`
+    );
+
+    gossip.destroy();
   });
 
   // Test 2: Outbound Peer Preference
@@ -289,5 +370,10 @@ export async function runSecurityHardeningTest(): Promise<void> {
 
 // Run if executed directly
 if (import.meta.url === `file://${process.argv[1]}`) {
-  runSecurityHardeningTest().catch(console.error);
+  runSecurityHardeningTest()
+    .then(() => process.exit(0))
+    .catch((error) => {
+      console.error(error);
+      process.exit(1);
+    });
 }

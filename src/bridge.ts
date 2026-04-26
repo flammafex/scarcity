@@ -7,11 +7,13 @@
  */
 
 import { Crypto } from './crypto.js';
+import { DEFAULT_TOKEN_VALIDITY_MS } from './constants.js';
 import { ScarbuckToken } from './token.js';
+import { OwnershipProof } from './ownership.js';
 import type {
   PublicKey,
   BridgePackage,
-  FreebirdClient,
+  AdmissionClient,
   WitnessClient,
   GossipNetwork
 } from './types.js';
@@ -23,12 +25,18 @@ export interface BridgeConfig {
   readonly targetWitness: WitnessClient;
   readonly sourceGossip: GossipNetwork;
   readonly targetGossip: GossipNetwork;
-  /** Freebird for the source federation (ownership proofs, locking) */
-  readonly sourceFreebird?: FreebirdClient;
-  /** Freebird for the target federation (commitments, auth tokens for recipient) */
-  readonly targetFreebird?: FreebirdClient;
-  /** @deprecated Use sourceFreebird/targetFreebird instead. When provided alone, used for both federations. */
-  readonly freebird?: FreebirdClient;
+  /** Admission client for the source federation. */
+  readonly sourceAuth?: AdmissionClient;
+  /** Admission client for the target federation. */
+  readonly targetAuth?: AdmissionClient;
+  /** Admission client used for both federations when source/target differencing is not needed. */
+  readonly auth?: AdmissionClient;
+  /** @deprecated Use sourceAuth. */
+  readonly sourceFreebird?: AdmissionClient;
+  /** @deprecated Use targetAuth. */
+  readonly targetFreebird?: AdmissionClient;
+  /** @deprecated Use auth/sourceAuth/targetAuth. When provided alone, used for both federations. */
+  readonly freebird?: AdmissionClient;
 }
 
 export class FederationBridge {
@@ -38,8 +46,8 @@ export class FederationBridge {
   private readonly targetWitness: WitnessClient;
   private readonly sourceGossip: GossipNetwork;
   private readonly targetGossip: GossipNetwork;
-  private readonly sourceFreebird: FreebirdClient;
-  private readonly targetFreebird: FreebirdClient;
+  private readonly sourceAuth: AdmissionClient;
+  private readonly targetAuth: AdmissionClient;
 
   constructor(config: BridgeConfig) {
     this.sourceFederation = config.sourceFederation;
@@ -48,9 +56,61 @@ export class FederationBridge {
     this.targetWitness = config.targetWitness;
     this.sourceGossip = config.sourceGossip;
     this.targetGossip = config.targetGossip;
-    // Support both new (sourceFreebird/targetFreebird) and legacy (freebird) config
-    this.sourceFreebird = config.sourceFreebird ?? config.freebird!;
-    this.targetFreebird = config.targetFreebird ?? config.freebird!;
+    this.sourceAuth = config.sourceAuth ?? config.sourceFreebird ?? config.auth ?? config.freebird!;
+    this.targetAuth = config.targetAuth ?? config.targetFreebird ?? config.auth ?? config.freebird!;
+    if (!this.sourceAuth || !this.targetAuth) {
+      throw new Error('FederationBridge requires admission/auth clients');
+    }
+  }
+
+  private assertBridgeSourceWasSpendable(sourceCreatedAt: number, spendTimestamp: number): void {
+    if (typeof sourceCreatedAt !== 'number' || !Number.isFinite(sourceCreatedAt)) {
+      throw new Error('Missing Scarcity source creation timestamp for bridge');
+    }
+
+    const sourceAgeAtSpend = spendTimestamp - sourceCreatedAt;
+    if (sourceAgeAtSpend < -300_000) {
+      throw new Error('Invalid Scarcity source creation timestamp for bridge');
+    }
+    if (sourceAgeAtSpend > DEFAULT_TOKEN_VALIDITY_MS) {
+      throw new Error('Source token expired before bridge');
+    }
+  }
+
+  private hashLockPackage(pkg: BridgePackage): string {
+    return Crypto.hashString(JSON.stringify({
+      sourceTokenId: pkg.sourceTokenId,
+      sourceCreatedAt: pkg.sourceCreatedAt,
+      sourceFederation: pkg.sourceFederation,
+      targetFederation: pkg.targetFederation,
+      amount: pkg.amount,
+      commitment: pkg.commitment,
+      authToken: pkg.authToken,
+      nullifier: pkg.nullifier
+    }));
+  }
+
+  private hashMintPackage(pkg: BridgePackage): string {
+    return Crypto.hashString(JSON.stringify({
+      sourceTokenId: pkg.sourceTokenId,
+      sourceCreatedAt: pkg.sourceCreatedAt,
+      sourceFederation: pkg.sourceFederation,
+      targetFederation: pkg.targetFederation,
+      amount: pkg.amount,
+      commitment: pkg.commitment,
+      authToken: pkg.authToken,
+      nullifier: pkg.nullifier,
+      sourceProof: pkg.sourceProof
+    }));
+  }
+
+  private assertProofCoversBridgePackage(pkg: BridgePackage): void {
+    if (pkg.sourceProof.hash !== this.hashLockPackage(pkg)) {
+      throw new Error('Bridge source proof does not match package contents');
+    }
+    if (pkg.targetProof && pkg.targetProof.hash !== this.hashMintPackage(pkg)) {
+      throw new Error('Bridge target proof does not match package contents');
+    }
   }
 
   /**
@@ -69,6 +129,14 @@ export class FederationBridge {
     recipientKey: PublicKey
   ): Promise<BridgePackage> {
     const tokenState = token.getPersistentState();
+    const tokenMetadata = token.getMetadata();
+    if (tokenState.spent || tokenMetadata.spent) {
+      throw new Error('Cannot bridge spent token');
+    }
+    if (Date.now() > tokenMetadata.expiresAt) {
+      throw new Error('Cannot bridge expired token');
+    }
+    const sourceCreatedAt = tokenState.createdAt ?? tokenMetadata.createdAt;
 
     // Phase 1: Lock token in source federation
     const nullifier = Crypto.hash(
@@ -76,12 +144,12 @@ export class FederationBridge {
       tokenState.id
     );
 
-    // Create commitment and auth token for recipient via TARGET federation's Freebird
-    const commitment = await this.targetFreebird.blind(recipientKey);
-    const authToken = await this.targetFreebird.issueToken(commitment);
+    // Create Scarcity commitment and target-federation admission token.
+    const commitment = await Crypto.createCommitment(recipientKey.bytes);
+    const authToken = await this.targetAuth.issueAdmissionToken();
 
-    // Create ownership proof bound to nullifier via SOURCE federation's Freebird
-    const ownershipProof = await this.sourceFreebird.createOwnershipProof(
+    // Create Scarcity ownership proof bound to nullifier.
+    const ownershipProof = await OwnershipProof.create(
       tokenState.secret,
       nullifier
     );
@@ -89,6 +157,7 @@ export class FederationBridge {
     // Package bridge data for source federation
     const lockPackage = {
       sourceTokenId: tokenState.id,
+      sourceCreatedAt,
       sourceFederation: this.sourceFederation,
       targetFederation: this.targetFederation,
       amount: tokenState.amount,
@@ -128,6 +197,7 @@ export class FederationBridge {
 
     return {
       sourceTokenId: tokenState.id,
+      sourceCreatedAt,
       sourceFederation: this.sourceFederation,
       targetFederation: this.targetFederation,
       amount: tokenState.amount,
@@ -156,6 +226,7 @@ export class FederationBridge {
     if (!sourceValid) {
       throw new Error('Invalid source federation proof');
     }
+    this.assertProofCoversBridgePackage(pkg);
 
     // Verify target proof if present
     if (pkg.targetProof) {
@@ -165,8 +236,8 @@ export class FederationBridge {
       }
     }
 
-    // Verify Freebird authorization token is present (V3 tokens are single-use;
-    // actual verification happens before receiveBridged is called).
+    // Verify Freebird admission token is present. Single-use verification
+    // happens before receiveBridged is called.
     if (!pkg.authToken || pkg.authToken.length === 0) {
       throw new Error('Missing required Freebird authorization token for bridge');
     }
@@ -175,11 +246,12 @@ export class FederationBridge {
     if (!pkg.ownershipProof) {
       throw new Error('Missing required ownership proof for bridge');
     }
-    // Ownership proof was created by source federation's Freebird
-    const ownershipValid = await this.sourceFreebird.verifyOwnershipProof(pkg.ownershipProof, pkg.nullifier);
+    const ownershipValid = await OwnershipProof.verify(pkg.ownershipProof, pkg.nullifier);
     if (!ownershipValid) {
       throw new Error('Invalid ownership proof');
     }
+
+    this.assertBridgeSourceWasSpendable(pkg.sourceCreatedAt, pkg.sourceProof.timestamp);
 
     // Verify this is the correct target federation
     if (pkg.targetFederation !== this.targetFederation) {
@@ -213,9 +285,10 @@ export class FederationBridge {
       id: targetTokenId,
       amount: pkg.amount,
       secret: recipientSecret,
-      freebird: this.targetFreebird,
+      auth: this.targetAuth,
       witness: this.targetWitness,
-      gossip: this.targetGossip
+      gossip: this.targetGossip,
+      createdAt: pkg.targetProof?.timestamp ?? pkg.sourceProof.timestamp
     });
   }
 
@@ -240,6 +313,17 @@ export class FederationBridge {
     // Verify source proof
     const sourceValid = await this.sourceWitness.verify(pkg.sourceProof);
     if (!sourceValid) {
+      return false;
+    }
+    try {
+      this.assertProofCoversBridgePackage(pkg);
+    } catch {
+      return false;
+    }
+
+    try {
+      this.assertBridgeSourceWasSpendable(pkg.sourceCreatedAt, pkg.sourceProof.timestamp);
+    } catch {
       return false;
     }
 

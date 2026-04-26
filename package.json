@@ -1,6 +1,6 @@
 {
   "name": "scarcity",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Chaumian e-cash with blind signatures, nullifier gossip, and lazy demurrage",
   "type": "module",
   "main": "dist/index.js",

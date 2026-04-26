@@ -11,7 +11,7 @@ import { TestRunner, TestConfig } from '../helpers/test-utils.js';
 import { NullifierGossip } from '../../src/gossip.js';
 import { WitnessAdapter } from '../../src/integrations/witness.js';
 import { HyperTokenAdapter } from '../../src/integrations/hypertoken.js';
-import { FreebirdAdapter } from '../../src/integrations/freebird.js';
+import { OwnershipProof } from '../../src/ownership.js';
 import { Crypto } from '../../src/crypto.js';
 import type { GossipMessage } from '../../src/types.js';
 
@@ -307,12 +307,6 @@ export async function runSpamMitigationTest(): Promise<void> {
   // Layer 3: Ownership Proof Verification
   console.log('\n🔐 Layer 3: Ownership Proof Verification\n');
 
-  // Create a Freebird adapter for ownership proof tests
-  const freebird = new FreebirdAdapter({
-    issuerEndpoints: [TestConfig.freebird.issuer],
-    verifierUrl: TestConfig.freebird.verifier
-  });
-
   await runner.run('should reject messages without ownership proof when required', async () => {
     const witness = new WitnessAdapter({
       gatewayUrl: TestConfig.witness.gateway
@@ -320,7 +314,6 @@ export async function runSpamMitigationTest(): Promise<void> {
 
     const gossip = new NullifierGossip({
       witness,
-      freebird, // Required when requireOwnershipProof is true
       requireOwnershipProof: true // Enable ownership proof requirement
     });
 
@@ -358,7 +351,6 @@ export async function runSpamMitigationTest(): Promise<void> {
 
     const gossip = new NullifierGossip({
       witness,
-      freebird,
       requireOwnershipProof: true
     });
 
@@ -367,7 +359,7 @@ export async function runSpamMitigationTest(): Promise<void> {
     const nullifier = Crypto.randomBytes(32);
 
     // Create a valid Schnorr ownership proof bound to the nullifier
-    const ownershipProof = await freebird.createOwnershipProof(secret, nullifier);
+    const ownershipProof = await OwnershipProof.create(secret, nullifier);
 
     // Message with valid Schnorr ownership proof
     const message: GossipMessage = {
@@ -446,4 +438,14 @@ export async function runSpamMitigationTest(): Promise<void> {
   if (summary.failed > 0) {
     throw new Error(`${summary.failed} test(s) failed`);
   }
+}
+
+// Run if executed directly
+if (import.meta.url === `file://${process.argv[1]}`) {
+  runSpamMitigationTest()
+    .then(() => process.exit(0))
+    .catch((error) => {
+      console.error(error);
+      process.exit(1);
+    });
 }

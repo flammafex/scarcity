@@ -59,7 +59,7 @@ Scarcity tokens are bearer instruments, like physical cash:
 - No transaction history linked to identity
 
 **Privacy implications:**
-- Sender and receiver are unlinkable (via Freebird VOPRF)
+- Sender and receiver are unlinkable through Scarcity nullifiers and recipient commitments
 - No address reuse problems
 - No balance correlation attacks
 - Transfers leave no identity trail
@@ -222,17 +222,17 @@ The ~576 day default balances:
 
 ## Mint Economics
 
-Scarcity is **Chaumian e-cash**: tokens are issued by a mint (the Freebird issuer), blind-signed so the mint cannot link issuance to spending, and bearer-transferable. Each mint is an independent monetary authority.
+Scarcity is **Chaumian e-cash**: tokens are bearer-transferable, unlinkable at spend time, and governed by Scarcity's own token state. Freebird is admission infrastructure only; it can gate who may submit operations, but it does not mint token IDs, amounts, ownership state, or demurrage timestamps.
 
 ### Issuance Control
 
-- The mint controls token supply and sets issuance policy
-- MPC threshold signing splits the mint key across operators for security against compromise — but the operators collectively decide monetary policy
-- Different mints can have different policies (supply caps, issuance rates, Sybil requirements)
+- Scarcity controls token supply and sets issuance policy
+- Scarcity persists the economic state that matters for audit: token IDs, amounts, source timestamps, and split/merge lineage
+- Different Scarcity communities can have different policies (supply caps, issuance rates, Sybil requirements)
 
 ### Sybil Resistance
 
-Uncontrolled token issuance would undermine the economic model. Freebird provides configurable Sybil resistance:
+Uncontrolled access would undermine the economic model. Freebird provides configurable Sybil resistance for admission to Scarcity operations:
 
 **Recommended configuration** (used in docker-compose.yaml):
 ```
@@ -243,29 +243,29 @@ SYBIL_COMBINED_MECHANISMS=progressive_trust,proof_of_diversity
 
 | Mechanism | Economic Function |
 |-----------|-------------------|
-| `progressive_trust` | New participants start with limited issuance; trust builds over time |
+| `progressive_trust` | New participants start with limited admission; trust builds over time |
 | `proof_of_diversity` | Prevents single actors from creating many identities |
 
 **Why this matters:**
-- Prevents inflation attacks (mass token creation)
+- Limits admission abuse while Scarcity enforces the actual economic token creation rules
 - Prevents spam attacks (flooding network with transfers)
-- Enforces the mint's supply policy
+- Lets Scarcity enforce its own supply policy behind an admission gate
 - Aligns with progressive trust philosophy
 
 See [SECURITY.md](SECURITY.md) for technical details.
 
-### The Mint as Monetary Authority
+### Scarcity as Monetary Authority
 
-- The mint **does** control supply and **does** make monetary policy decisions — this is the Chaumian model
-- MPC splits the signing key for operational security, not to decentralize policy; the operators are the mint
-- Witness makes issuance auditable: anyone can verify total supply and issuance rate against the mint's stated policy
-- Vendors and users choose which mints to trust, creating market discipline — a dishonest mint loses acceptance
+- Scarcity operators **do** control supply and **do** make monetary policy decisions — this is the Chaumian model
+- Admission credentials are operational security and Sybil resistance, not the economic token itself
+- Witness makes issuance auditable: anyone can verify total supply and issuance rate against the Scarcity community's stated policy
+- Vendors and users choose which Scarcity communities to trust, creating market discipline — dishonest operators lose acceptance
 
-### Cross-Mint
+### Cross-Community
 
-- Bridge protocol enables transfers between mints
+- Bridge protocol enables transfers between Scarcity communities
 - Atomic swaps via HTLCs
-- Mints can have different trust models and policies
+- Communities can have different trust models and policies
 
 ---
 

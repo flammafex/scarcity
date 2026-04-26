@@ -261,7 +261,7 @@ export class WebWalletServer {
           amount: persisted.amount,
           secretKey: Crypto.toHex(persisted.secret),
           wallet,
-          created: Date.now(),
+          created: persisted.createdAt ?? Date.now(),
           spent: persisted.spent,
           metadata: { type: 'minted' }
         });
@@ -304,7 +304,8 @@ export class WebWalletServer {
             id: storedToken.id,
             amount: storedToken.amount,
             secret: Crypto.fromHex(storedToken.secretKey),
-            spent: storedToken.spent
+            spent: storedToken.spent,
+            createdAt: storedToken.created
           },
           infra.freebird,
           infra.witness,
@@ -328,7 +329,9 @@ export class WebWalletServer {
             transfer: {
               tokenId: transfer.tokenId,
               amount: transfer.amount,
+              sourceCreatedAt: transfer.sourceCreatedAt,
               commitment: Crypto.toHex(transfer.commitment),
+              authToken: transfer.authToken ? Crypto.toHex(transfer.authToken) : undefined,
               nullifier: Crypto.toHex(transfer.nullifier),
               proof: {
                 hash: transfer.proof.hash,
@@ -360,7 +363,9 @@ export class WebWalletServer {
         const tokenTransfer: TransferPackage = {
           tokenId: transfer.tokenId,
           amount: transfer.amount,
+          sourceCreatedAt: transfer.sourceCreatedAt,
           commitment: Crypto.fromHex(transfer.commitment),
+          authToken: transfer.authToken ? Crypto.fromHex(transfer.authToken) : undefined,
           nullifier: Crypto.fromHex(transfer.nullifier),
           proof: transfer.proof,
           ownershipProof: transfer.ownershipProof ? Crypto.fromHex(transfer.ownershipProof) : undefined
@@ -386,7 +391,7 @@ export class WebWalletServer {
           amount: metadata.amount,
           secretKey: Crypto.toHex(recipientSecret),
           wallet,
-          created: Date.now(),
+          created: token.getPersistentState().createdAt ?? Date.now(),
           spent: false,
           metadata: { type: 'received' }
         });
@@ -426,7 +431,8 @@ export class WebWalletServer {
             id: storedToken.id,
             amount: storedToken.amount,
             secret: Crypto.fromHex(storedToken.secretKey),
-            spent: storedToken.spent
+            spent: storedToken.spent,
+            createdAt: storedToken.created
           },
           infra.freebird,
           infra.witness,
@@ -451,7 +457,7 @@ export class WebWalletServer {
             amount: split.amount,
             secretKey: Crypto.toHex(secret),
             wallet: storedToken.wallet,
-            created: Date.now(),
+            created: splitPackage.proof.timestamp,
             spent: false,
             metadata: { type: 'split', source: tokenId }
           });
@@ -500,7 +506,8 @@ export class WebWalletServer {
             id: st.id,
             amount: st.amount,
             secret: Crypto.fromHex(st.secretKey),
-            spent: st.spent
+            spent: st.spent,
+            createdAt: st.created
           },
           infra.freebird,
           infra.witness,
@@ -525,7 +532,7 @@ export class WebWalletServer {
           amount: mergePackage.targetAmount,
           secretKey: Crypto.toHex(secret),
           wallet: storedTokens[0].wallet,
-          created: Date.now(),
+          created: mergePackage.proof.timestamp,
           spent: false,
           metadata: { type: 'merged', source: tokenIds.join(',') }
         });

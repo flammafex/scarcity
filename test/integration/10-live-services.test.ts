@@ -46,15 +46,13 @@ export async function runLiveServicesTest(): Promise<void> {
   });
 
   await runner.run('Freebird Verifier reachable', async () => {
-    // Send an invalid verify request — any non-5xx response proves the service is alive.
-    const res = await fetch(`${TestConfig.freebird.verifier}/v1/verify`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token_b64: 'invalid' }),
+    const res = await fetch(`${TestConfig.freebird.verifier}/.well-known/verifier`, {
       signal: AbortSignal.timeout(5000)
     });
-    runner.assert(res.status < 500, `Verifier returned HTTP ${res.status} (expected < 500)`);
-    console.log(`  Verifier responded with HTTP ${res.status} (alive)`);
+    runner.assert(res.ok, `Verifier returned HTTP ${res.status}`);
+    const verifierMeta = await res.json();
+    runner.assert(!!verifierMeta.scope_digest_b64, 'Verifier must expose V4 scope metadata');
+    console.log(`  Verifier ID: ${verifierMeta.verifier_id ?? 'unknown'}`);
   });
 
   await runner.run('Witness Gateway reachable', async () => {
@@ -76,7 +74,7 @@ export async function runLiveServicesTest(): Promise<void> {
     probe.disconnect();
   });
 
-  // ── Freebird VOPRF: blind → issue → verify ────────────────────
+  // ── Freebird V4 admission: issue → verify ─────────────────────
 
   // Explicit allowInsecureFallback: false overrides the env var
   // that test-utils sets, so adapters will throw instead of silently
@@ -89,23 +87,16 @@ export async function runLiveServicesTest(): Promise<void> {
 
   let voprfToken: Uint8Array;
 
-  await runner.run('VOPRF blind + issue (hits issuer)', async () => {
-    const { publicKey } = createTestKeyPair();
-    const blinded = await freebird.blind(publicKey);
-    runner.assert(
-      blinded.length === 33,
-      `Expected 33-byte compressed P-256 point, got ${blinded.length} bytes`
-    );
-
-    voprfToken = await freebird.issueToken(blinded);
-    runner.assert(voprfToken.length > 0, 'issueToken must return non-empty token');
-    console.log(`  Blinded element: ${blinded.length} bytes`);
-    console.log(`  VOPRF token: ${voprfToken.length} bytes`);
+  await runner.run('V4 private admission issue (hits issuer)', async () => {
+    voprfToken = await freebird.issueAdmissionToken();
+    runner.assert(voprfToken.length > 0, 'issueAdmissionToken must return non-empty token');
+    runner.assert(voprfToken[0] === 0x04, 'Admission token must use Freebird V4 format');
+    console.log(`  Admission token: ${voprfToken.length} bytes`);
   });
 
-  await runner.run('VOPRF verify (hits verifier)', async () => {
-    const valid = await freebird.verifyToken(voprfToken!);
-    runner.assert(valid, 'Verifier must accept a freshly-issued VOPRF token');
+  await runner.run('V4 private admission verify (hits verifier)', async () => {
+    const valid = await freebird.verifyAdmissionToken(voprfToken!);
+    runner.assert(valid, 'Verifier must accept a freshly-issued V4 admission token');
   });
 
   // ── Witness: timestamp → verify ───────────────────────────────
@@ -180,13 +171,13 @@ export async function runLiveServicesTest(): Promise<void> {
     const token = ScarbuckToken.mint(42, freebird, witness, gossip);
     transferPkg = await token.transfer(recipientPubKey);
 
-    // Commitment must be 33 bytes (real VOPRF), not 32 (fallback hash)
+    // Commitment is Scarcity-owned recipient state, not a Freebird VOPRF point.
     runner.assert(
-      transferPkg.commitment.length === 33,
-      `Commitment must be 33 bytes (VOPRF), got ${transferPkg.commitment.length}`
+      transferPkg.commitment.length === 32,
+      `Commitment must be 32 bytes (Scarcity commitment), got ${transferPkg.commitment.length}`
     );
 
-    // Auth token must be present (issueToken was called)
+    // Auth token must be present (Freebird admission was issued).
     runner.assert(
       transferPkg.authToken && transferPkg.authToken.length > 0,
       'Transfer must include Freebird auth token'
@@ -204,7 +195,7 @@ export async function runLiveServicesTest(): Promise<void> {
     runner.assert(!hasFallback, 'Transfer proof must not use fallback witnesses');
 
     console.log(`  Amount: ${transferPkg.amount}`);
-    console.log(`  Commitment: ${transferPkg.commitment.length} bytes (VOPRF)`);
+    console.log(`  Commitment: ${transferPkg.commitment.length} bytes (Scarcity)`);
     console.log(`  Witness sigs: ${transferPkg.proof.signatures.length}`);
   });
 

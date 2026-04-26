@@ -86,26 +86,34 @@ services:
     image: ghcr.io/flammafex/freebird-issuer:latest
     ports:
       - "8081:8081"
+    volumes:
+      - freebird-issuer-data:/data
     environment:
-      - ISSUER_ID=issuer:docker:v1
+      - ISSUER_ID=issuer:docker:v4
       - BIND_ADDR=0.0.0.0:8081
       # Combined Sybil resistance: requires BOTH progressive trust AND proof of diversity
       - SYBIL_RESISTANCE=combined
       - SYBIL_COMBINED_MODE=and
       - SYBIL_COMBINED_MECHANISMS=progressive_trust,proof_of_diversity
       - ADMIN_API_KEY=dev-admin-key-must-be-at-least-32-characters-long
-      - ISSUER_SK_PATH=/tmp/issuer_sk.bin
-      - KEY_ROTATION_STATE_PATH=/tmp/key_state.json
+      - ISSUER_SK_PATH=/data/keys/issuer_sk.bin
+      - KEY_ROTATION_STATE_PATH=/data/keys/key_state.json
 
   freebird-verifier:
     image: ghcr.io/flammafex/freebird-verifier:latest
     ports:
       - "8082:8082"
     depends_on:
+      - freebird-issuer
       - freebird-redis
+    volumes:
+      - freebird-issuer-data:/issuer-data:ro
     environment:
       - BIND_ADDR=0.0.0.0:8082
+      - VERIFIER_ID=verifier:scarcity:v4
+      - VERIFIER_AUDIENCE=scarcity
       - ISSUER_URL=http://freebird-issuer:8081/.well-known/issuer
+      - VERIFIER_SK_PATH=/issuer-data/keys/issuer_sk.bin
       - REDIS_URL=redis://freebird-redis:6379
 
   freebird-redis:
@@ -231,4 +239,5 @@ services:
 
 volumes:
   witness-config:
+  freebird-issuer-data:
   scarcity-data: # Persistence for wallets and explorer DB

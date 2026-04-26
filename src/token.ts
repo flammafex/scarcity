@@ -3,6 +3,8 @@
  */
 
 import { Crypto } from './crypto.js';
+import { DEFAULT_TOKEN_VALIDITY_MS } from './constants.js';
+import { OwnershipProof } from './ownership.js';
 import type {
   PublicKey,
   TransferPackage,
@@ -11,20 +13,22 @@ import type {
   MultiPartyTransfer,
   HTLCPackage,
   HTLCCondition,
-  BridgePackage,
-  FreebirdClient,
+  AdmissionClient,
   WitnessClient,
-  GossipNetwork,
-  Attestation
+  GossipNetwork
 } from './types.js';
 
 export interface ScarbuckTokenConfig {
   readonly id: string;
   readonly amount: number;
   readonly secret: Uint8Array;
-  readonly freebird: FreebirdClient;
+  readonly auth?: AdmissionClient;
+  /** @deprecated Freebird is now admission infrastructure only; use auth. */
+  readonly freebird?: AdmissionClient;
   readonly witness: WitnessClient;
   readonly gossip: GossipNetwork;
+  readonly createdAt?: number;
+  readonly maxTokenAge?: number;
 }
 
 export interface ScarbuckTokenPersistentState {
@@ -32,24 +36,115 @@ export interface ScarbuckTokenPersistentState {
   readonly amount: number;
   readonly secret: Uint8Array;
   readonly spent: boolean;
+  readonly createdAt?: number;
 }
 
 export class ScarbuckToken {
   private readonly id: string;
   private readonly amount: number;
   private readonly secret: Uint8Array;
-  private readonly freebird: FreebirdClient;
+  private readonly auth: AdmissionClient;
   private readonly witness: WitnessClient;
   private readonly gossip: GossipNetwork;
+  private readonly createdAt: number;
+  private readonly maxTokenAge: number;
   private spent: boolean = false;
 
   constructor(config: ScarbuckTokenConfig) {
     this.id = config.id;
     this.amount = config.amount;
     this.secret = config.secret;
-    this.freebird = config.freebird;
+    this.auth = config.auth ?? config.freebird!;
+    if (!this.auth) {
+      throw new Error('ScarbuckToken requires an admission/auth client');
+    }
     this.witness = config.witness;
     this.gossip = config.gossip;
+    this.createdAt = config.createdAt ?? Date.now();
+    this.maxTokenAge = config.maxTokenAge ?? DEFAULT_TOKEN_VALIDITY_MS;
+  }
+
+  private assertSpendable(): void {
+    if (this.spent) {
+      throw new Error('Token already spent');
+    }
+
+    const age = Date.now() - this.createdAt;
+    if (age > this.maxTokenAge) {
+      throw new Error(
+        `Token expired. Age (${(age / 3600000).toFixed(1)}h) exceeds Scarcity validity window.`
+      );
+    }
+  }
+
+  private async createRecipientCommitment(to: PublicKey): Promise<Uint8Array> {
+    return Crypto.createCommitment(to.bytes);
+  }
+
+  private static assertSourceWasSpendable(sourceCreatedAt: number, spendTimestamp: number): void {
+    if (typeof sourceCreatedAt !== 'number' || !Number.isFinite(sourceCreatedAt)) {
+      throw new Error('Missing Scarcity source creation timestamp');
+    }
+
+    const sourceAgeAtSpend = spendTimestamp - sourceCreatedAt;
+    if (sourceAgeAtSpend < -300_000) {
+      throw new Error('Invalid Scarcity source creation timestamp');
+    }
+
+    if (sourceAgeAtSpend > DEFAULT_TOKEN_VALIDITY_MS) {
+      throw new Error(
+        `Source token expired before spend. Age (${(sourceAgeAtSpend / 3600000).toFixed(1)}h) exceeds Scarcity validity window.`
+      );
+    }
+  }
+
+  private static assertProofCoversHash(actualHash: string, expectedHash: string, label: string): void {
+    if (actualHash !== expectedHash) {
+      throw new Error(`${label} proof does not match package contents`);
+    }
+  }
+
+  private static hashSplitPackage(pkg: SplitPackage): string {
+    return Crypto.hashString(JSON.stringify({
+      sourceTokenId: pkg.sourceTokenId,
+      sourceAmount: pkg.sourceAmount,
+      sourceCreatedAt: pkg.sourceCreatedAt,
+      splits: pkg.splits,
+      nullifier: pkg.nullifier
+    }));
+  }
+
+  private static hashMergePackage(pkg: MergePackage): string {
+    return Crypto.hashString(JSON.stringify({
+      targetTokenId: pkg.targetTokenId,
+      targetAmount: pkg.targetAmount,
+      commitment: pkg.commitment,
+      authToken: pkg.authToken,
+      sources: pkg.sources
+    }));
+  }
+
+  private static hashMultiPartyPackage(pkg: MultiPartyTransfer): string {
+    return Crypto.hashString(JSON.stringify({
+      sourceTokenId: pkg.sourceTokenId,
+      sourceAmount: pkg.sourceAmount,
+      sourceCreatedAt: pkg.sourceCreatedAt,
+      recipients: pkg.recipients,
+      nullifier: pkg.nullifier
+    }));
+  }
+
+  private static hashHTLCPackage(pkg: HTLCPackage): string {
+    return Crypto.hashString(JSON.stringify({
+      tokenId: pkg.tokenId,
+      amount: pkg.amount,
+      sourceCreatedAt: pkg.sourceCreatedAt,
+      commitment: pkg.commitment,
+      authToken: pkg.authToken,
+      nullifier: pkg.nullifier,
+      condition: pkg.condition,
+      refundPublicKey: pkg.refundPublicKey
+    }));
   }
 
   /**
@@ -66,9 +161,7 @@ export class ScarbuckToken {
    * @returns Transfer package for recipient
    */
   async transfer(to: PublicKey): Promise<TransferPackage> {
-    if (this.spent) {
-      throw new Error('Token already spent');
-    }
+    this.assertSpendable();
 
     // A. Create nullifier (unique spend identifier)
     const nullifier = Crypto.hash(
@@ -76,20 +169,20 @@ export class ScarbuckToken {
       this.id
     );
 
-    // B. Blind commitment to recipient (privacy-preserving)
-    const commitment = await this.freebird.blind(to);
+    // B. Create a Scarcity-owned recipient commitment.
+    const commitment = await this.createRecipientCommitment(to);
 
-    // C. Issue VOPRF token via Freebird issuer (anonymous authorization)
-    const authToken = await this.freebird.issueToken(commitment);
+    // C. Issue an admission token via Freebird. This authorizes access only.
+    const authToken = await this.auth.issueAdmissionToken();
 
-    // D. Create ownership proof (proves we have the right to spend)
-    // Bound to nullifier to prevent replay attacks
-    const ownershipProof = await this.freebird.createOwnershipProof(this.secret, nullifier);
+    // D. Create Scarcity ownership proof bound to nullifier.
+    const ownershipProof = await OwnershipProof.create(this.secret, nullifier);
 
     // E. Package transfer data
     const pkg = {
       tokenId: this.id,
       amount: this.amount,
+      sourceCreatedAt: this.createdAt,
       commitment,
       authToken,
       nullifier
@@ -126,9 +219,7 @@ export class ScarbuckToken {
    * @returns Split package containing all new token data
    */
   async split(amounts: number[], recipients: PublicKey[]): Promise<SplitPackage> {
-    if (this.spent) {
-      throw new Error('Token already spent');
-    }
+    this.assertSpendable();
 
     if (amounts.length !== recipients.length) {
       throw new Error('Number of amounts must match number of recipients');
@@ -148,23 +239,24 @@ export class ScarbuckToken {
     // Generate nullifier for source token
     const nullifier = Crypto.hash(this.secret, this.id);
 
-    // Create blinded commitments and auth tokens for each recipient
+    // Create Scarcity commitments and Freebird admission tokens for each recipient
     const splits = await Promise.all(
       amounts.map(async (amount, i) => {
         const tokenId = Crypto.toHex(Crypto.randomBytes(32));
-        const commitment = await this.freebird.blind(recipients[i]);
-        const authToken = await this.freebird.issueToken(commitment);
+        const commitment = await this.createRecipientCommitment(recipients[i]);
+        const authToken = await this.auth.issueAdmissionToken();
         return { tokenId, amount, commitment, authToken };
       })
     );
 
-    // Create ownership proof bound to nullifier
-    const ownershipProof = await this.freebird.createOwnershipProof(this.secret, nullifier);
+    // Create Scarcity ownership proof bound to nullifier
+    const ownershipProof = await OwnershipProof.create(this.secret, nullifier);
 
     // Package split data
     const pkg = {
       sourceTokenId: this.id,
       sourceAmount: this.amount,
+      sourceCreatedAt: this.createdAt,
       splits,
       nullifier
     };
@@ -207,10 +299,11 @@ export class ScarbuckToken {
     }
 
     // Verify all tokens use same infrastructure
-    const freebird = tokens[0].freebird;
+    const auth = tokens[0].auth;
     const witness = tokens[0].witness;
     const gossip = tokens[0].gossip;
 
+    tokens.forEach(token => token.assertSpendable());
     const tokenStates = tokens.map((token) => token.getPersistentState());
 
     // Verify no tokens are already spent
@@ -225,9 +318,9 @@ export class ScarbuckToken {
     // Generate new token ID
     const targetTokenId = Crypto.toHex(Crypto.randomBytes(32));
 
-    // Create commitment and auth token for recipient
-    const commitment = await freebird.blind(recipientKey);
-    const authToken = await freebird.issueToken(commitment);
+    // Create Scarcity recipient commitment and Freebird admission token
+    const commitment = await Crypto.createCommitment(recipientKey.bytes);
+    const authToken = await auth.issueAdmissionToken();
 
     // Generate nullifiers and ownership proofs for all source tokens
     const sources = await Promise.all(
@@ -236,15 +329,16 @@ export class ScarbuckToken {
         return {
           tokenId: state.id,
           amount: state.amount,
+          createdAt: state.createdAt ?? Date.now(),
           nullifier
         };
       })
     );
 
-    // Create ownership proofs for each token, bound to its nullifier
+    // Create Scarcity ownership proofs for each token, bound to its nullifier
     const ownershipProofs = await Promise.all(
       tokenStates.map((state, i) =>
-        freebird.createOwnershipProof(state.secret, sources[i].nullifier)
+        OwnershipProof.create(state.secret, sources[i].nullifier)
       )
     );
 
@@ -284,14 +378,14 @@ export class ScarbuckToken {
    * Create a new token from scratch (minting)
    *
    * @param amount - Token amount
-   * @param freebird - Freebird client
+   * @param auth - Admission authorization client
    * @param witness - Witness client
    * @param gossip - Gossip network
    * @returns New ScarbuckToken instance
    */
   static mint(
     amount: number,
-    freebird: FreebirdClient,
+    auth: AdmissionClient,
     witness: WitnessClient,
     gossip: GossipNetwork
   ): ScarbuckToken {
@@ -302,9 +396,10 @@ export class ScarbuckToken {
       id,
       amount,
       secret,
-      freebird,
+      auth,
       witness,
-      gossip
+      gossip,
+      createdAt: Date.now()
     });
   }
 
@@ -313,7 +408,7 @@ export class ScarbuckToken {
    */
   static fromPersistentState(
     state: ScarbuckTokenPersistentState,
-    freebird: FreebirdClient,
+    auth: AdmissionClient,
     witness: WitnessClient,
     gossip: GossipNetwork
   ): ScarbuckToken {
@@ -321,9 +416,10 @@ export class ScarbuckToken {
       id: state.id,
       amount: state.amount,
       secret: state.secret,
-      freebird,
+      auth,
       witness,
-      gossip
+      gossip,
+      createdAt: state.createdAt
     });
     if (state.spent) {
       token.markSpent();
@@ -336,7 +432,7 @@ export class ScarbuckToken {
    *
    * @param pkg - Transfer package from sender
    * @param recipientSecret - Recipient's secret key
-   * @param freebird - Freebird client
+   * @param auth - Admission authorization client
    * @param witness - Witness client
    * @param gossip - Gossip network
    * @returns New ScarbuckToken instance for recipient
@@ -344,7 +440,7 @@ export class ScarbuckToken {
   static async receive(
     pkg: TransferPackage,
     recipientSecret: Uint8Array,
-    freebird: FreebirdClient,
+    auth: AdmissionClient,
     witness: WitnessClient,
     gossip: GossipNetwork
   ): Promise<ScarbuckToken> {
@@ -353,10 +449,14 @@ export class ScarbuckToken {
     if (!valid) {
       throw new Error('Invalid transfer proof');
     }
+    ScarbuckToken.assertProofCoversHash(
+      pkg.proof.hash,
+      Crypto.hashTransferPackage(pkg),
+      'Transfer'
+    );
 
-    // Verify Freebird authorization token is present.
-    // Note: V3 tokens are single-use (consumed on verification), so the actual
-    // verifyToken() call happens in TransferValidator — not here.
+    // Verify Freebird admission token is present. Single-use verification
+    // happens in TransferValidator, not here.
     if (!pkg.authToken || pkg.authToken.length === 0) {
       throw new Error('Missing required Freebird authorization token');
     }
@@ -365,19 +465,22 @@ export class ScarbuckToken {
     if (!pkg.ownershipProof) {
       throw new Error('Missing required ownership proof');
     }
-    const ownershipValid = await freebird.verifyOwnershipProof(pkg.ownershipProof, pkg.nullifier);
+    const ownershipValid = await OwnershipProof.verify(pkg.ownershipProof, pkg.nullifier);
     if (!ownershipValid) {
       throw new Error('Invalid ownership proof');
     }
+
+    ScarbuckToken.assertSourceWasSpendable(pkg.sourceCreatedAt, pkg.proof.timestamp);
 
     // Create new token for recipient
     return new ScarbuckToken({
       id: pkg.tokenId,
       amount: pkg.amount,
       secret: recipientSecret,
-      freebird,
+      auth,
       witness,
-      gossip
+      gossip,
+      createdAt: pkg.proof.timestamp
     });
   }
 
@@ -387,7 +490,7 @@ export class ScarbuckToken {
    * @param pkg - Split package from sender
    * @param recipientSecret - Recipient's secret key
    * @param splitIndex - Index of the split to receive (0-based)
-   * @param freebird - Freebird client
+   * @param auth - Admission authorization client
    * @param witness - Witness client
    * @param gossip - Gossip network
    * @returns New ScarbuckToken instance for recipient
@@ -396,7 +499,7 @@ export class ScarbuckToken {
     pkg: SplitPackage,
     recipientSecret: Uint8Array,
     splitIndex: number,
-    freebird: FreebirdClient,
+    auth: AdmissionClient,
     witness: WitnessClient,
     gossip: GossipNetwork
   ): Promise<ScarbuckToken> {
@@ -410,9 +513,14 @@ export class ScarbuckToken {
     if (!valid) {
       throw new Error('Invalid split proof');
     }
+    ScarbuckToken.assertProofCoversHash(
+      pkg.proof.hash,
+      ScarbuckToken.hashSplitPackage(pkg),
+      'Split'
+    );
 
-    // Verify Freebird authorization token is present (V3 tokens are single-use;
-    // actual verification happens in TransferValidator).
+    // Verify Freebird admission token is present. Single-use verification
+    // happens at validation boundaries.
     const split = pkg.splits[splitIndex];
     if (!split.authToken || split.authToken.length === 0) {
       throw new Error('Missing required Freebird authorization token for split');
@@ -422,19 +530,22 @@ export class ScarbuckToken {
     if (!pkg.ownershipProof) {
       throw new Error('Missing required ownership proof');
     }
-    const ownershipValid = await freebird.verifyOwnershipProof(pkg.ownershipProof, pkg.nullifier);
+    const ownershipValid = await OwnershipProof.verify(pkg.ownershipProof, pkg.nullifier);
     if (!ownershipValid) {
       throw new Error('Invalid ownership proof');
     }
+
+    ScarbuckToken.assertSourceWasSpendable(pkg.sourceCreatedAt, pkg.proof.timestamp);
 
     // Create new token for recipient
     return new ScarbuckToken({
       id: split.tokenId,
       amount: split.amount,
       secret: recipientSecret,
-      freebird,
+      auth,
       witness,
-      gossip
+      gossip,
+      createdAt: pkg.proof.timestamp
     });
   }
 
@@ -443,7 +554,7 @@ export class ScarbuckToken {
    *
    * @param pkg - Merge package
    * @param recipientSecret - Recipient's secret key
-   * @param freebird - Freebird client
+   * @param auth - Admission authorization client
    * @param witness - Witness client
    * @param gossip - Gossip network
    * @returns New ScarbuckToken instance with combined amount
@@ -451,7 +562,7 @@ export class ScarbuckToken {
   static async receiveMerge(
     pkg: MergePackage,
     recipientSecret: Uint8Array,
-    freebird: FreebirdClient,
+    auth: AdmissionClient,
     witness: WitnessClient,
     gossip: GossipNetwork
   ): Promise<ScarbuckToken> {
@@ -460,9 +571,14 @@ export class ScarbuckToken {
     if (!valid) {
       throw new Error('Invalid merge proof');
     }
+    ScarbuckToken.assertProofCoversHash(
+      pkg.proof.hash,
+      ScarbuckToken.hashMergePackage(pkg),
+      'Merge'
+    );
 
-    // Verify Freebird authorization token is present (V3 tokens are single-use;
-    // actual verification happens in TransferValidator).
+    // Verify Freebird admission token is present. Single-use verification
+    // happens at validation boundaries.
     if (!pkg.authToken || pkg.authToken.length === 0) {
       throw new Error('Missing required Freebird authorization token for merge');
     }
@@ -473,11 +589,15 @@ export class ScarbuckToken {
     }
     const validations = await Promise.all(
       pkg.ownershipProofs.map((proof, i) =>
-        freebird.verifyOwnershipProof(proof, pkg.sources[i].nullifier)
+        OwnershipProof.verify(proof, pkg.sources[i].nullifier)
       )
     );
     if (validations.some(v => !v)) {
       throw new Error('Invalid ownership proofs in merge');
+    }
+
+    for (const source of pkg.sources) {
+      ScarbuckToken.assertSourceWasSpendable(source.createdAt, pkg.proof.timestamp);
     }
 
     // Create new token for recipient
@@ -485,9 +605,10 @@ export class ScarbuckToken {
       id: pkg.targetTokenId,
       amount: pkg.targetAmount,
       secret: recipientSecret,
-      freebird,
+      auth,
       witness,
-      gossip
+      gossip,
+      createdAt: pkg.proof.timestamp
     });
   }
 
@@ -500,9 +621,7 @@ export class ScarbuckToken {
   async transferMultiParty(
     recipients: Array<{ publicKey: PublicKey; amount: number }>
   ): Promise<MultiPartyTransfer> {
-    if (this.spent) {
-      throw new Error('Token already spent');
-    }
+    this.assertSpendable();
 
     if (recipients.length === 0) {
       throw new Error('Must provide at least one recipient');
@@ -522,12 +641,12 @@ export class ScarbuckToken {
     // Generate nullifier for source token
     const nullifier = Crypto.hash(this.secret, this.id);
 
-    // Create blinded commitments and auth tokens for each recipient
+    // Create Scarcity commitments and Freebird admission tokens for each recipient
     const recipientData = await Promise.all(
       recipients.map(async (recipient) => {
         const tokenId = Crypto.toHex(Crypto.randomBytes(32));
-        const commitment = await this.freebird.blind(recipient.publicKey);
-        const authToken = await this.freebird.issueToken(commitment);
+        const commitment = await this.createRecipientCommitment(recipient.publicKey);
+        const authToken = await this.auth.issueAdmissionToken();
         return {
           publicKey: recipient.publicKey,
           amount: recipient.amount,
@@ -538,13 +657,14 @@ export class ScarbuckToken {
       })
     );
 
-    // Create ownership proof bound to nullifier
-    const ownershipProof = await this.freebird.createOwnershipProof(this.secret, nullifier);
+    // Create Scarcity ownership proof bound to nullifier
+    const ownershipProof = await OwnershipProof.create(this.secret, nullifier);
 
     // Package multi-party transfer data
     const pkg = {
       sourceTokenId: this.id,
       sourceAmount: this.amount,
+      sourceCreatedAt: this.createdAt,
       recipients: recipientData,
       nullifier
     };
@@ -574,7 +694,7 @@ export class ScarbuckToken {
    * @param pkg - Multi-party transfer package
    * @param recipientSecret - Recipient's secret key
    * @param recipientIndex - Index of recipient in the package (0-based)
-   * @param freebird - Freebird client
+   * @param auth - Admission authorization client
    * @param witness - Witness client
    * @param gossip - Gossip network
    * @returns New ScarbuckToken instance for recipient
@@ -583,7 +703,7 @@ export class ScarbuckToken {
     pkg: MultiPartyTransfer,
     recipientSecret: Uint8Array,
     recipientIndex: number,
-    freebird: FreebirdClient,
+    auth: AdmissionClient,
     witness: WitnessClient,
     gossip: GossipNetwork
   ): Promise<ScarbuckToken> {
@@ -597,9 +717,14 @@ export class ScarbuckToken {
     if (!valid) {
       throw new Error('Invalid multi-party transfer proof');
     }
+    ScarbuckToken.assertProofCoversHash(
+      pkg.proof.hash,
+      ScarbuckToken.hashMultiPartyPackage(pkg),
+      'Multi-party transfer'
+    );
 
-    // Verify Freebird authorization token is present (V3 tokens are single-use;
-    // actual verification happens in TransferValidator).
+    // Verify Freebird admission token is present. Single-use verification
+    // happens at validation boundaries.
     const recipient = pkg.recipients[recipientIndex];
     if (!recipient.authToken || recipient.authToken.length === 0) {
       throw new Error('Missing required Freebird authorization token for recipient');
@@ -609,19 +734,22 @@ export class ScarbuckToken {
     if (!pkg.ownershipProof) {
       throw new Error('Missing required ownership proof');
     }
-    const ownershipValid = await freebird.verifyOwnershipProof(pkg.ownershipProof, pkg.nullifier);
+    const ownershipValid = await OwnershipProof.verify(pkg.ownershipProof, pkg.nullifier);
     if (!ownershipValid) {
       throw new Error('Invalid ownership proof');
     }
+
+    ScarbuckToken.assertSourceWasSpendable(pkg.sourceCreatedAt, pkg.proof.timestamp);
 
     // Create new token for recipient
     return new ScarbuckToken({
       id: recipient.tokenId,
       amount: recipient.amount,
       secret: recipientSecret,
-      freebird,
+      auth,
       witness,
-      gossip
+      gossip,
+      createdAt: pkg.proof.timestamp
     });
   }
 
@@ -632,7 +760,9 @@ export class ScarbuckToken {
     return {
       id: this.id,
       amount: this.amount,
-      spent: this.spent
+      spent: this.spent,
+      createdAt: this.createdAt,
+      expiresAt: this.createdAt + this.maxTokenAge
     };
   }
 
@@ -645,7 +775,8 @@ export class ScarbuckToken {
       id: this.id,
       amount: this.amount,
       secret: new Uint8Array(this.secret),
-      spent: this.spent
+      spent: this.spent,
+      createdAt: this.createdAt
     };
   }
 
@@ -680,9 +811,7 @@ export class ScarbuckToken {
     condition: HTLCCondition,
     refundKey?: PublicKey
   ): Promise<HTLCPackage> {
-    if (this.spent) {
-      throw new Error('Token already spent');
-    }
+    this.assertSpendable();
 
     // Validate condition
     if (condition.type === 'hash') {
@@ -704,17 +833,18 @@ export class ScarbuckToken {
     // Generate nullifier
     const nullifier = Crypto.hash(this.secret, this.id);
 
-    // Create blinded commitment and auth token for recipient
-    const commitment = await this.freebird.blind(to);
-    const authToken = await this.freebird.issueToken(commitment);
+    // Create Scarcity recipient commitment and Freebird admission token
+    const commitment = await this.createRecipientCommitment(to);
+    const authToken = await this.auth.issueAdmissionToken();
 
-    // Create ownership proof bound to nullifier
-    const ownershipProof = await this.freebird.createOwnershipProof(this.secret, nullifier);
+    // Create Scarcity ownership proof bound to nullifier
+    const ownershipProof = await OwnershipProof.create(this.secret, nullifier);
 
     // Package HTLC data
     const pkg = {
       tokenId: this.id,
       amount: this.amount,
+      sourceCreatedAt: this.createdAt,
       commitment,
       authToken,
       nullifier,
@@ -752,7 +882,7 @@ export class ScarbuckToken {
    * @param pkg - HTLC package
    * @param recipientSecret - Recipient's secret key
    * @param preimage - Hash preimage to unlock (for hash-locked HTLCs)
-   * @param freebird - Freebird client
+   * @param auth - Admission authorization client
    * @param witness - Witness client
    * @param gossip - Gossip network
    * @returns New ScarbuckToken instance for recipient
@@ -761,7 +891,7 @@ export class ScarbuckToken {
     pkg: HTLCPackage,
     recipientSecret: Uint8Array,
     preimage: Uint8Array | undefined,
-    freebird: FreebirdClient,
+    auth: AdmissionClient,
     witness: WitnessClient,
     gossip: GossipNetwork
   ): Promise<ScarbuckToken> {
@@ -770,9 +900,14 @@ export class ScarbuckToken {
     if (!valid) {
       throw new Error('Invalid HTLC proof');
     }
+    ScarbuckToken.assertProofCoversHash(
+      pkg.proof.hash,
+      ScarbuckToken.hashHTLCPackage(pkg),
+      'HTLC'
+    );
 
-    // Verify Freebird authorization token is present (V3 tokens are single-use;
-    // actual verification happens in TransferValidator).
+    // Verify Freebird admission token is present. Single-use verification
+    // happens at validation boundaries.
     if (!pkg.authToken || pkg.authToken.length === 0) {
       throw new Error('Missing required Freebird authorization token for HTLC');
     }
@@ -781,10 +916,12 @@ export class ScarbuckToken {
     if (!pkg.ownershipProof) {
       throw new Error('Missing required ownership proof');
     }
-    const ownershipValid = await freebird.verifyOwnershipProof(pkg.ownershipProof, pkg.nullifier);
+    const ownershipValid = await OwnershipProof.verify(pkg.ownershipProof, pkg.nullifier);
     if (!ownershipValid) {
       throw new Error('Invalid ownership proof');
     }
+
+    ScarbuckToken.assertSourceWasSpendable(pkg.sourceCreatedAt, pkg.proof.timestamp);
 
     // Check condition
     if (pkg.condition.type === 'hash') {
@@ -817,9 +954,10 @@ export class ScarbuckToken {
       id: pkg.tokenId,
       amount: pkg.amount,
       secret: recipientSecret,
-      freebird,
+      auth,
       witness,
-      gossip
+      gossip,
+      createdAt: pkg.proof.timestamp
     });
   }
 
@@ -828,7 +966,7 @@ export class ScarbuckToken {
    *
    * @param pkg - HTLC package
    * @param refundSecret - Refund key's secret
-   * @param freebird - Freebird client
+   * @param auth - Admission authorization client
    * @param witness - Witness client
    * @param gossip - Gossip network
    * @returns New ScarbuckToken instance for refund recipient
@@ -836,7 +974,7 @@ export class ScarbuckToken {
   static async refundHTLC(
     pkg: HTLCPackage,
     refundSecret: Uint8Array,
-    freebird: FreebirdClient,
+    auth: AdmissionClient,
     witness: WitnessClient,
     gossip: GossipNetwork
   ): Promise<ScarbuckToken> {
@@ -845,12 +983,19 @@ export class ScarbuckToken {
     if (!valid) {
       throw new Error('Invalid HTLC proof');
     }
+    ScarbuckToken.assertProofCoversHash(
+      pkg.proof.hash,
+      ScarbuckToken.hashHTLCPackage(pkg),
+      'HTLC'
+    );
 
-    // Verify Freebird authorization token is present (V3 tokens are single-use;
-    // actual verification happens in TransferValidator).
+    // Verify Freebird admission token is present. Single-use verification
+    // happens in TransferValidator.
     if (!pkg.authToken || pkg.authToken.length === 0) {
       throw new Error('Missing required Freebird authorization token for HTLC refund');
     }
+
+    ScarbuckToken.assertSourceWasSpendable(pkg.sourceCreatedAt, pkg.proof.timestamp);
 
     // Verify this is a time-locked HTLC
     if (pkg.condition.type !== 'time') {
@@ -881,9 +1026,10 @@ export class ScarbuckToken {
       id: pkg.tokenId,
       amount: pkg.amount,
       secret: refundSecret,
-      freebird,
+      auth,
       witness,
-      gossip
+      gossip,
+      createdAt: pkg.proof.timestamp
     });
   }
 }

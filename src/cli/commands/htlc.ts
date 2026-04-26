@@ -102,7 +102,8 @@ export class HTLCCommand extends Command {
           id: storedToken.id,
           amount: storedToken.amount,
           secret: Crypto.fromHex(storedToken.secretKey),
-          spent: storedToken.spent
+          spent: storedToken.spent,
+          createdAt: storedToken.created
         },
         freebird,
         witness,
@@ -146,7 +147,9 @@ export class HTLCCommand extends Command {
         type: 'htlc',
         tokenId: htlcPkg.tokenId,
         amount: htlcPkg.amount,
+        sourceCreatedAt: htlcPkg.sourceCreatedAt,
         commitment: Crypto.toHex(htlcPkg.commitment),
+        authToken: htlcPkg.authToken ? Crypto.toHex(htlcPkg.authToken) : undefined,
         condition: htlcPkg.condition,
         nullifier: Crypto.toHex(htlcPkg.nullifier),
         proof: htlcPkg.proof,
@@ -244,7 +247,9 @@ export class HTLCCommand extends Command {
         {
           tokenId: pkg.tokenId,
           amount: pkg.amount,
+          sourceCreatedAt: pkg.sourceCreatedAt,
           commitment: Crypto.fromHex(pkg.commitment),
+          authToken: pkg.authToken ? Crypto.fromHex(pkg.authToken) : undefined,
           condition: pkg.condition,
           nullifier: Crypto.fromHex(pkg.nullifier),
           proof: pkg.proof,
@@ -265,7 +270,7 @@ export class HTLCCommand extends Command {
         amount: persisted.amount,
         secretKey: Crypto.toHex(persisted.secret),
         wallet: wallet as string,
-        created: Date.now(),
+        created: persisted.createdAt ?? Date.now(),
         spent: persisted.spent,
         metadata: {
           type: 'received',
@@ -346,7 +351,9 @@ export class HTLCCommand extends Command {
         {
           tokenId: pkg.tokenId,
           amount: pkg.amount,
+          sourceCreatedAt: pkg.sourceCreatedAt,
           commitment: Crypto.fromHex(pkg.commitment),
+          authToken: pkg.authToken ? Crypto.fromHex(pkg.authToken) : undefined,
           condition: pkg.condition,
           nullifier: Crypto.fromHex(pkg.nullifier),
           proof: pkg.proof,
@@ -366,7 +373,7 @@ export class HTLCCommand extends Command {
         amount: persisted.amount,
         secretKey: Crypto.toHex(persisted.secret),
         wallet: wallet as string,
-        created: Date.now(),
+        created: persisted.createdAt ?? Date.now(),
         spent: persisted.spent,
         metadata: {
           type: 'received',
