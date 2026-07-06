@@ -6,8 +6,6 @@
  * 1. Starts with WebSocket for initial connection and signaling
  * 2. Automatically upgrades to WebRTC for lower latency
  * 3. Gracefully falls back to WebSocket if WebRTC fails
- *
- * Vendored from hypertoken-monorepo for Scarcity integration.
  */
 import { Emitter } from "./events.js";
 import {
@@ -89,13 +87,6 @@ export class HybridPeerManager extends Emitter {
   }
 
   /**
-   * Get the number of reconnection attempts
-   */
-  getReconnectAttempts(): number {
-    return this.wsConnection.getReconnectAttempts();
-  }
-
-  /**
    * Connect to the server via WebSocket
    */
   connect(): void {
@@ -142,15 +133,26 @@ export class HybridPeerManager extends Emitter {
    * Broadcast data to all connected peers
    */
   broadcast(type: string, payload: any = {}): void {
-    // Send to all WebRTC-connected peers
+    const rtcSent = new Set<string>();
+
+    // Send to all WebRTC-connected peers directly
     for (const [peerId, rtcConn] of this.rtcConnections) {
       if (rtcConn.isConnected()) {
         rtcConn.send({ type, payload });
+        rtcSent.add(peerId);
       }
     }
 
-    // Also broadcast via WebSocket for peers without WebRTC
-    this.wsConnection.broadcast(type, payload);
+    // Send to remaining peers via WebSocket relay (avoid double-delivery)
+    if (rtcSent.size === 0) {
+      this.wsConnection.broadcast(type, payload);
+    } else {
+      for (const peerId of this.wsConnection.peers) {
+        if (!rtcSent.has(peerId)) {
+          this.wsConnection.sendToPeer(peerId, { type, payload });
+        }
+      }
+    }
   }
 
   /**
@@ -228,12 +230,21 @@ export class HybridPeerManager extends Emitter {
       this.emit('net:peer:connected', evt);
 
       // Auto-upgrade to WebRTC after delay
+      // Use tie-breaker to prevent glare (both sides initiating simultaneously)
+      // Only the peer with the lexicographically "lower" ID initiates the connection
+      const myPeerId = this.getPeerId();
+      const shouldInitiate = myPeerId && peerId && myPeerId < peerId;
+
       if (this.autoUpgrade && peerId) {
-        setTimeout(() => {
-          this.upgradeToWebRTC(peerId).catch(err => {
-            console.error(`[Hybrid] Failed to upgrade to WebRTC for ${peerId}:`, err);
-          });
-        }, this.upgradeDelay);
+        if (shouldInitiate) {
+          setTimeout(() => {
+            this.upgradeToWebRTC(peerId).catch(err => {
+              console.error(`[Hybrid] Failed to upgrade to WebRTC for ${peerId}:`, err);
+            });
+          }, this.upgradeDelay);
+        } else {
+          console.log(`[Hybrid] Skipping WebRTC initiation for ${peerId} (waiting for remote peer to initiate)`);
+        }
       }
     });
 

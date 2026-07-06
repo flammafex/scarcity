@@ -80,21 +80,6 @@ export class MessageCodec {
   }
 
   /**
-   * Update codec configuration
-   */
-  setConfig(config: Partial<CodecConfig>): void {
-    if (config.format !== undefined) {
-      this.config.format = config.format;
-    }
-    if (config.compression !== undefined) {
-      this.config.compression = {
-        ...this.config.compression,
-        ...config.compression,
-      };
-    }
-  }
-
-  /**
    * Encode a message for transmission
    *
    * @param message - Any JSON-serializable object
@@ -220,26 +205,6 @@ export class MessageCodec {
    */
   static json(): MessageCodec {
     return new MessageCodec({ format: "json" });
-  }
-
-  /**
-   * Create a codec with MessagePack format (default)
-   */
-  static msgpack(compression?: Partial<CompressionConfig>): MessageCodec {
-    return new MessageCodec({
-      format: "msgpack",
-      compression: compression ? { ...DEFAULT_COMPRESSION, ...compression } : undefined,
-    });
-  }
-
-  /**
-   * Create a codec with compression disabled
-   */
-  static uncompressed(format: CodecFormat = "msgpack"): MessageCodec {
-    return new MessageCodec({
-      format,
-      compression: { enabled: false, threshold: 0, level: 6 },
-    });
   }
 }
 

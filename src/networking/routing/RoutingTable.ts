@@ -8,7 +8,7 @@
  * - Automatic eviction of unresponsive peers
  */
 
-import { Emitter } from "../events.js";
+import { Emitter } from "../../vendor/hypertoken/events.js";
 import {
   PeerId,
   RoutedPeer,

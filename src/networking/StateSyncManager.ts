@@ -6,7 +6,7 @@
  * catch-up functionality for peers that missed updates.
  */
 
-import { Emitter } from "./events.js";
+import { Emitter } from "../vendor/hypertoken/events.js";
 
 /**
  * A tracked state delta

@@ -6,7 +6,7 @@
  * for message routing, peer management, and broadcast operations.
  */
 
-import { Emitter } from "../events.js";
+import { Emitter } from "../../vendor/hypertoken/events.js";
 
 /**
  * 256-bit peer identifier (SHA-256 hash of public key)

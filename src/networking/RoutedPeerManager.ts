@@ -11,8 +11,8 @@
  * or explicit configuration.
  */
 
-import { Emitter } from "./events.js";
-import { HybridPeerManager, HybridPeerManagerOptions } from "./HybridPeerManager.js";
+import { Emitter } from "../vendor/hypertoken/events.js";
+import { HybridPeerManager, HybridPeerManagerOptions } from "../vendor/hypertoken/HybridPeerManager.js";
 import {
   Router,
   RoutedPeer,

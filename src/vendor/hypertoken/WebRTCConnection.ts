@@ -4,11 +4,8 @@
  *
  * Provides a high-level abstraction over RTCPeerConnection and RTCDataChannel
  * for reliable, low-latency P2P communication.
- *
- * Vendored from hypertoken-monorepo for Scarcity integration.
  */
 import { Emitter } from "./events.js";
-import { RTCPeerConnection, RTCSessionDescription, RTCIceCandidate } from "./webrtc-polyfill.js";
 import { MessageCodec, defaultCodec } from "./MessageCodec.js";
 
 export interface WebRTCConfig {
@@ -70,7 +67,7 @@ export class WebRTCConnection extends Emitter {
   private remotePeerId: string;
   private config: WebRTCConfig;
   private connectionState: RTCPeerConnectionState = 'new';
-  private connectionTimeout: ReturnType<typeof setTimeout> | null = null;
+  private connectionTimeout: NodeJS.Timeout | null = null;
   private retryCount: number = 0;
   private usingTurn: boolean = false;
   private codec: MessageCodec;
@@ -82,20 +79,6 @@ export class WebRTCConnection extends Emitter {
     this.codec = config.codec ?? defaultCodec;
 
     this.initializePeerConnection();
-  }
-
-  /**
-   * Get the current message codec
-   */
-  getCodec(): MessageCodec {
-    return this.codec;
-  }
-
-  /**
-   * Set a new message codec
-   */
-  setCodec(codec: MessageCodec): void {
-    this.codec = codec;
   }
 
   /**
@@ -220,20 +203,6 @@ export class WebRTCConnection extends Emitter {
 
     this.peerConnection.close();
     this.emit('rtc:disconnected', { peerId: this.remotePeerId });
-  }
-
-  /**
-   * Check if currently using TURN servers
-   */
-  isUsingTurn(): boolean {
-    return this.usingTurn;
-  }
-
-  /**
-   * Get current retry count
-   */
-  getRetryCount(): number {
-    return this.retryCount;
   }
 
   /**

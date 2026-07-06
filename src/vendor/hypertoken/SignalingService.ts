@@ -148,10 +148,4 @@ export class SignalingService extends Emitter {
     return this.wsConnection;
   }
 
-  /**
-   * Check if the WebSocket connection is ready
-   */
-  isReady(): boolean {
-    return this.wsConnection.connected && this.wsConnection.peerId !== null;
-  }
 }

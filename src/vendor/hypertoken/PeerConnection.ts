@@ -4,8 +4,6 @@
  *
  * This is network transport infrastructure for P2P engine synchronization.
  * Includes automatic reconnection with exponential backoff.
- *
- * Vendored from hypertoken-monorepo for Scarcity integration.
  */
 import { Emitter } from "./events.js";
 import { MessageCodec, CodecConfig, jsonCodec } from "./MessageCodec.js";
@@ -141,28 +139,6 @@ export class PeerConnection extends Emitter {
     return this.connectionState;
   }
 
-  /**
-   * Get number of reconnection attempts
-   */
-  getReconnectAttempts(): number {
-    return this.reconnectAttempts;
-  }
-
-  /**
-   * Get the current message codec
-   */
-  getCodec(): MessageCodec {
-    return this.codec;
-  }
-
-  /**
-   * Set a new message codec
-   */
-  setCodec(codec: MessageCodec): void {
-    this.codec = codec;
-    this.binaryMode = codec.getConfig().format === "msgpack";
-  }
-
   connect(): void {
     this.intentionalClose = false;
     this._connect();
@@ -221,14 +197,6 @@ export class PeerConnection extends Emitter {
       this.socket.close(1000, "Client disconnect");
     }
     this.connectionState = ConnectionState.Disconnected;
-  }
-
-  /**
-   * Reset reconnection state (call before re-connecting after intentional disconnect)
-   */
-  resetReconnection(): void {
-    this.reconnectAttempts = 0;
-    this.intentionalClose = false;
   }
 
   sendToPeer(targetPeerId: string, payload: any): void {
@@ -320,6 +288,7 @@ export class PeerConnection extends Emitter {
    */
   private _scheduleReconnect(): void {
     if (!this.reconnectConfig.enabled) {
+      console.log("[PeerConnection] Reconnection disabled");
       return;
     }
 
@@ -347,14 +316,7 @@ export class PeerConnection extends Emitter {
 
     this.reconnectAttempts++;
 
-    // Keep reconnect logs readable under expected fallback by logging only
-    // early attempts and powers-of-two backoff milestones.
-    if (
-      this.reconnectAttempts <= 2 ||
-      (this.reconnectAttempts & (this.reconnectAttempts - 1)) === 0
-    ) {
-      console.log(`[PeerConnection] Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts}/${this.reconnectConfig.maxAttempts === Infinity ? '∞' : this.reconnectConfig.maxAttempts})`);
-    }
+    console.log(`[PeerConnection] Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts}/${this.reconnectConfig.maxAttempts === Infinity ? '∞' : this.reconnectConfig.maxAttempts})`);
 
     this.emit("net:reconnecting", {
       attempt: this.reconnectAttempts,

@@ -9,9 +9,9 @@
  * - StateSyncManager: Delta-based catch-up for reconnecting peers
  */
 
-import { RoutedPeerManager, RoutingStrategy } from '../vendor/hypertoken/RoutedPeerManager.js';
+import { RoutedPeerManager, RoutingStrategy } from '../networking/RoutedPeerManager.js';
 import { E2EEncryption, EncryptedMessage, KeyExchangeMessage } from '../vendor/hypertoken/E2EEncryption.js';
-import { StateSyncManager, StateDelta, CatchupRequest, CatchupResponse } from '../vendor/hypertoken/StateSyncManager.js';
+import { StateSyncManager, StateDelta, CatchupRequest, CatchupResponse } from '../networking/StateSyncManager.js';
 import type { PeerConnection, GossipMessage } from '../types.js';
 import { Crypto } from '../crypto.js';
 
@@ -602,5 +602,5 @@ export class HyperTokenAdapter {
 }
 
 // Re-export types for convenience
-export { RoutingStrategy } from '../vendor/hypertoken/RoutedPeerManager.js';
-export type { StateDelta } from '../vendor/hypertoken/StateSyncManager.js';
+export { RoutingStrategy } from '../networking/RoutedPeerManager.js';
+export type { StateDelta } from '../networking/StateSyncManager.js';
