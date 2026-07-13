@@ -3,6 +3,7 @@ node_modules/
 
 # Build output
 dist/
+dist-v2-fixtures/
 
 # TypeScript cache
 *.tsbuildinfo
@@ -32,3 +33,6 @@ coverage/
 
 # Claude Code
 .claude/
+
+# Local deepwork state
+.slim/deepwork/
