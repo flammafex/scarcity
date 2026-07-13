@@ -1,6 +1,6 @@
 {
   "extends": "./tsconfig.json",
   "compilerOptions": { "outDir": "./dist-v2-fixtures", "declaration": false, "declarationMap": false, "sourceMap": false },
-  "include": ["test/fixtures/v2/**/*.ts"],
+  "include": ["src/v2/**/*.ts", "test/fixtures/v2/**/*.ts"],
   "exclude": ["src", "test/integration", "test/helpers"]
 }
