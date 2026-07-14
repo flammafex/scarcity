@@ -24,3 +24,5 @@ export interface Transaction { spend_domain: Bytes; inputs: Input[]; outputs: Tx
 export interface ExpiryPolicy { epoch_seconds: UInt64; max_lifetime_epochs: UInt64; boundary: 'exclusive'; }
 export interface AssetDescriptor { issuer: Bytes; asset_code: string; unit: string; decimals: number; policy_digest: Bytes; expiry_policy: ExpiryPolicy; asset_id: Bytes; issuer_signature: OpaqueEnvelope; }
 export interface RSAKeyset { issuer_id: Bytes; keyset_id: Bytes; asset_id: Bytes; spend_domain: Bytes; denomination: UInt64; issuance_epoch: UInt64; expiry_epoch: UInt64; modulus: Bytes; public_exponent: 65537; suite: 'RSABSSA-SHA384-PSS-Randomized'; authority_key_id: Bytes; authority_signature: OpaqueEnvelope; }
+export type AuthorityRole = 'issuer-authority' | 'issuer-revoke' | 'federation-authority' | 'witness-authority';
+export interface AuthorityKeyRecord { namespace_id: Bytes; role: AuthorityRole; public_key: Bytes; not_before_epoch: UInt64; not_after_epoch: UInt64; predecessor_id: Bytes | null; key_id: Bytes; root_signature: OpaqueEnvelope; }

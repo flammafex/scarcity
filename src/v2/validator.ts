@@ -1,6 +1,7 @@
 import { encodeCanonical } from './cbor.js';
-import { assetId, keysetId, mintOutputCommitment, mintTransactionId, nullifier as deriveNullifier, outputId, policyDigest, v2Hash } from './identifiers.js';
-import type { AssetDescriptor, Authorization, Bytes, ExpiryPolicy, Input, MintNote, NoteFields, RSAKeyset, SpendableNote, Transaction, TxOutput } from './models.js';
+import { ed25519 } from '@noble/curves/ed25519.js';
+import { assetId, authorityKeyId, authorizationChallenge, keysetId, mintOutputCommitment, mintTransactionId, nullifier as deriveNullifier, outputId, policyDigest, v2Hash } from './identifiers.js';
+import type { AssetDescriptor, AuthorityKeyRecord, Authorization, Bytes, ExpiryPolicy, Input, MintNote, NoteFields, RSAKeyset, SpendableNote, Transaction, TxOutput } from './models.js';
 
 const MAX_UINT64 = (1n << 64n) - 1n;
 const MAX_UINT128 = (1n << 128n) - 1n;
@@ -33,6 +34,14 @@ function inputProjection(input: Input) { const fields = noteFields(input.note); 
 export function validateExpiryPolicy(policy: ExpiryPolicy): void {
   if (uint64(policy.epoch_seconds) === 0n || uint64(policy.max_lifetime_epochs) === 0n || policy.boundary !== 'exclusive') fail('schema');
 }
+export function validateAuthorityKeyRecord(record: AuthorityKeyRecord): void {
+  length(record.namespace_id, 32); length(record.public_key, 32); length(record.key_id, 32); opaque(record.root_signature); uint64(record.not_before_epoch); uint64(record.not_after_epoch); if (record.not_before_epoch >= record.not_after_epoch) fail('time');
+  if (!['issuer-authority', 'issuer-revoke', 'federation-authority', 'witness-authority'].includes(record.role)) fail('schema'); if (record.predecessor_id !== null) length(record.predecessor_id, 32);
+  const identity = { namespace_id: record.namespace_id, role: record.role, public_key: record.public_key, not_before_epoch: record.not_before_epoch, not_after_epoch: record.not_after_epoch, predecessor_id: record.predecessor_id };
+  if (!Buffer.from(authorityKeyId(identity)).equals(Buffer.from(record.key_id))) fail('hash-binding');
+}
+export function validateAssetAuthorityBinding(descriptor: AssetDescriptor, record: AuthorityKeyRecord): void { validateAuthorityKeyRecord(record); validateAssetDescriptor(descriptor); if (record.role !== 'issuer-authority' || !Buffer.from(record.namespace_id).equals(Buffer.from(descriptor.issuer))) fail('provenance'); }
+export function validateKeysetAuthorityBinding(keyset: RSAKeyset, descriptor: AssetDescriptor, record: AuthorityKeyRecord): void { validateAuthorityKeyRecord(record); validateRSAKeyset(keyset, descriptor); if (record.role !== 'issuer-authority' || !Buffer.from(record.namespace_id).equals(Buffer.from(keyset.issuer_id)) || !Buffer.from(record.key_id).equals(Buffer.from(keyset.authority_key_id))) fail('provenance'); }
 export function validateAssetDescriptor(descriptor: AssetDescriptor): void {
   length(descriptor.issuer, 32); ascii(descriptor.asset_code, 64); ascii(descriptor.unit, 32); if (!Number.isInteger(descriptor.decimals) || descriptor.decimals < 0 || descriptor.decimals > 38) fail('schema');
   validateExpiryPolicy(descriptor.expiry_policy); length(descriptor.policy_digest, 32); length(descriptor.asset_id, 32); opaque(descriptor.issuer_signature);
@@ -75,7 +84,7 @@ export function validateTransaction(transaction: Transaction): { transaction_id:
   validateUniqueOutputIds(outputIds);
   if (inputTotals.size !== outputTotals.size || [...inputTotals].some(([asset, total]) => outputTotals.get(asset) !== total)) fail('arithmetic');
   if (transaction.authorizations.length !== inputs.length) fail('authorization'); const refs = new Set<number>();
-  transaction.authorizations.forEach((auth: Authorization, authorizationIndex) => { if (!Number.isInteger(auth.input_index) || auth.input_index < 0 || auth.input_index >= inputs.length || refs.has(auth.input_index) || inputs[auth.input_index].authorization_ref !== authorizationIndex) fail('authorization'); refs.add(auth.input_index); length(auth.owner_key_id, 32); length(auth.challenge, 32); length(auth.signature, 64); if (!Buffer.from(auth.owner_key_id).equals(Buffer.from(inputProjection(inputs[auth.input_index]).owner_key_id))) fail('authorization'); });
+  transaction.authorizations.forEach((auth: Authorization, authorizationIndex) => { if (!Number.isInteger(auth.input_index) || auth.input_index < 0 || auth.input_index >= inputs.length || refs.has(auth.input_index) || inputs[auth.input_index].authorization_ref !== authorizationIndex) fail('authorization'); refs.add(auth.input_index); length(auth.owner_key_id, 32); length(auth.challenge, 32); length(auth.signature, 64); const input = inputs[auth.input_index]; const fields = noteFields(input.note); const ownerKeyId = inputProjection(input).owner_key_id; if (!Buffer.from(auth.owner_key_id).equals(Buffer.from(ownerKeyId))) fail('authorization'); const challenge = authorizationChallenge(transactionId, auth.input_index, transaction.spend_domain, auth.owner_key_id); if (!Buffer.from(auth.challenge).equals(Buffer.from(challenge)) || !ed25519.verify(auth.signature, auth.challenge, fields.recipient_key)) fail('authorization'); });
   if (refs.size !== inputs.length) fail('authorization');
   return { transaction_id: transactionId, output_ids: outputIds };
 }
