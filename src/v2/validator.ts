@@ -1,6 +1,6 @@
 import { encodeCanonical } from './cbor.js';
-import { nullifier as deriveNullifier, outputId, v2Hash } from './identifiers.js';
-import type { Authorization, Bytes, Input, NoteFields, SpendableNote, Transaction, TxOutput } from './models.js';
+import { assetId, keysetId, mintOutputCommitment, mintTransactionId, nullifier as deriveNullifier, outputId, policyDigest, v2Hash } from './identifiers.js';
+import type { AssetDescriptor, Authorization, Bytes, ExpiryPolicy, Input, MintNote, NoteFields, RSAKeyset, SpendableNote, Transaction, TxOutput } from './models.js';
 
 const MAX_UINT64 = (1n << 64n) - 1n;
 const MAX_UINT128 = (1n << 128n) - 1n;
@@ -8,10 +8,13 @@ export class V2ValidationError extends Error { constructor(readonly category: st
 const fail = (category: string): never => { throw new V2ValidationError(category); };
 const length = (value: Bytes, size: number) => { if (!(value instanceof Uint8Array) || value.byteLength !== size) fail('schema'); };
 const amount = (value: number | bigint): bigint => { const n = typeof value === 'bigint' ? value : Number.isSafeInteger(value) ? BigInt(value) : fail('arithmetic'); if (n <= 0n || n > MAX_UINT64) fail('arithmetic'); return n; };
+const uint64 = (value: number | bigint): bigint => { const n = typeof value === 'bigint' ? value : Number.isSafeInteger(value) ? BigInt(value) : fail('arithmetic'); if (n < 0n || n > MAX_UINT64) fail('arithmetic'); return n; };
 const hex = (value: Bytes) => Buffer.from(value).toString('hex');
 export const checkedUint128Add = (left: bigint, right: bigint) => { if (left < 0n || right < 0n) fail('arithmetic'); const result = left + right; if (result > MAX_UINT128) fail('arithmetic'); return result; };
 const add = checkedUint128Add;
 const opaque = (value: unknown) => { if (!(value instanceof Uint8Array) || value.byteLength === 0) fail('schema'); };
+const ascii = (value: string, max: number) => { if (typeof value !== 'string' || value.length < 1 || value.length > max || !/^[\x00-\x7f]+$/.test(value)) fail('schema'); };
+const epochTime = (epoch: number | bigint, seconds: number | bigint): bigint => { const result = uint64(epoch) * uint64(seconds); if (result > MAX_UINT64) fail('arithmetic'); return result; };
 export function validateUniqueOutputIds(outputIds: Bytes[]): void { const seen = new Set<string>(); for (const id of outputIds) { length(id, 32); const key = hex(id); if (seen.has(key)) fail('schema'); seen.add(key); } }
 
 function note(note: SpendableNote): void {
@@ -22,9 +25,37 @@ function note(note: SpendableNote): void {
   else { amount(note.committed_at); opaque(note.receipt); opaque(note.inclusion_proof); output(note.output, note.output.spend_domain); }
 }
 function noteFields(note: SpendableNote): NoteFields { return 'mint_transaction_id' in note ? note : { ...note.output, output_id: note.output_id, expires_at: note.expires_at }; }
-function provenance(value: TxOutput['provenance']): void { if (value.kind === 'transition') return; if (value.kind !== 'mint') fail('schema'); length(value.keyset_id, 32); opaque(value.credential_payload); opaque(value.signature_envelope); }
+function provenance(value: TxOutput['provenance']): void { if (value.kind === 'transition') return; if (value.kind !== 'mint') fail('schema'); length(value.keyset_id, 32); mintSignatureInput(value.credential_payload); opaque(value.signature_envelope); }
+function mintSignatureInput(value: any): void { if (!value || typeof value !== 'object') fail('schema'); length(value.keyset_id, 32); length(value.asset_id, 32); length(value.spend_domain, 32); amount(value.denomination); uint64(value.issuance_epoch); uint64(value.expiry_epoch); if (!value.blinded_payload) fail('schema'); length(value.blinded_payload.owner_material, 32); length(value.blinded_payload.replay_nonce, 32); }
 function output(value: TxOutput, domain: Bytes): void { length(value.asset_id, 32); amount(value.amount); length(value.recipient_key, 32); length(value.spend_domain, 32); if (hex(value.spend_domain) !== hex(domain)) fail('schema'); length(value.output_commitment, 32); provenance(value.provenance); }
 function inputProjection(input: Input) { const fields = noteFields(input.note); return { output_id: fields.output_id, nullifier: input.nullifier, owner_key_id: v2Hash('owner-key', fields.recipient_key) }; }
+
+export function validateExpiryPolicy(policy: ExpiryPolicy): void {
+  if (uint64(policy.epoch_seconds) === 0n || uint64(policy.max_lifetime_epochs) === 0n || policy.boundary !== 'exclusive') fail('schema');
+}
+export function validateAssetDescriptor(descriptor: AssetDescriptor): void {
+  length(descriptor.issuer, 32); ascii(descriptor.asset_code, 64); ascii(descriptor.unit, 32); if (!Number.isInteger(descriptor.decimals) || descriptor.decimals < 0 || descriptor.decimals > 38) fail('schema');
+  validateExpiryPolicy(descriptor.expiry_policy); length(descriptor.policy_digest, 32); length(descriptor.asset_id, 32); opaque(descriptor.issuer_signature);
+  if (!Buffer.from(policyDigest(descriptor.expiry_policy)).equals(Buffer.from(descriptor.policy_digest))) fail('hash-binding');
+  const identity = { issuer: descriptor.issuer, asset_code: descriptor.asset_code, unit: descriptor.unit, decimals: descriptor.decimals, policy_digest: descriptor.policy_digest, expiry_policy: descriptor.expiry_policy };
+  if (!Buffer.from(assetId(identity)).equals(Buffer.from(descriptor.asset_id))) fail('hash-binding');
+}
+export function validateRSAKeyset(keyset: RSAKeyset, descriptor: AssetDescriptor): void {
+  validateAssetDescriptor(descriptor); length(keyset.issuer_id, 32); length(keyset.keyset_id, 32); length(keyset.asset_id, 32); length(keyset.spend_domain, 32); amount(keyset.denomination); uint64(keyset.issuance_epoch); uint64(keyset.expiry_epoch); if (keyset.issuance_epoch >= keyset.expiry_epoch) fail('time');
+  length(keyset.modulus, 384); if (keyset.public_exponent !== 65537 || keyset.suite !== 'RSABSSA-SHA384-PSS-Randomized') fail('schema'); length(keyset.authority_key_id, 32); opaque(keyset.authority_signature);
+  if (!Buffer.from(keyset.issuer_id).equals(Buffer.from(descriptor.issuer)) || !Buffer.from(keyset.asset_id).equals(Buffer.from(descriptor.asset_id))) fail('provenance'); if (BigInt(keyset.expiry_epoch) - BigInt(keyset.issuance_epoch) > uint64(descriptor.expiry_policy.max_lifetime_epochs)) fail('time');
+  const identity = { issuer_id: keyset.issuer_id, asset_id: keyset.asset_id, spend_domain: keyset.spend_domain, denomination: keyset.denomination, issuance_epoch: keyset.issuance_epoch, expiry_epoch: keyset.expiry_epoch, modulus: keyset.modulus, public_exponent: keyset.public_exponent, suite: keyset.suite, authority_key_id: keyset.authority_key_id };
+  if (!Buffer.from(keysetId(identity)).equals(Buffer.from(keyset.keyset_id))) fail('hash-binding');
+}
+export function validateMintNote(noteValue: MintNote, descriptor: AssetDescriptor, keyset: RSAKeyset, headerTime?: number | bigint): void {
+  validateAssetDescriptor(descriptor); validateRSAKeyset(keyset, descriptor); note(noteValue);
+  if (!Buffer.from(noteValue.asset_id).equals(Buffer.from(descriptor.asset_id)) || !Buffer.from(noteValue.spend_domain).equals(Buffer.from(keyset.spend_domain)) || !Buffer.from(noteValue.keyset_id).equals(Buffer.from(keyset.keyset_id)) || BigInt(noteValue.amount) !== BigInt(keyset.denomination)) fail('provenance');
+  if (noteValue.mint_credential.kind !== 'mint' || !Buffer.from(noteValue.mint_credential.keyset_id).equals(Buffer.from(keyset.keyset_id))) fail('provenance'); const payload = noteValue.mint_credential.credential_payload;
+  if (!Buffer.from(payload.keyset_id).equals(Buffer.from(keyset.keyset_id)) || !Buffer.from(payload.asset_id).equals(Buffer.from(keyset.asset_id)) || !Buffer.from(payload.spend_domain).equals(Buffer.from(keyset.spend_domain)) || BigInt(payload.denomination) !== BigInt(keyset.denomination) || BigInt(payload.issuance_epoch) !== BigInt(keyset.issuance_epoch) || BigInt(payload.expiry_epoch) !== BigInt(keyset.expiry_epoch) || !Buffer.from(payload.blinded_payload.owner_material).equals(Buffer.from(noteValue.recipient_key))) fail('provenance');
+  const commitment = mintOutputCommitment(keyset.keyset_id, payload.blinded_payload.owner_material, payload.blinded_payload.replay_nonce); if (!Buffer.from(commitment).equals(Buffer.from(noteValue.output_commitment))) fail('hash-binding');
+  const mintId = mintTransactionId(keyset.keyset_id, commitment); if (!Buffer.from(mintId).equals(Buffer.from(noteValue.mint_transaction_id))) fail('hash-binding'); if (!Buffer.from(outputId(mintId, 0, commitment)).equals(Buffer.from(noteValue.output_id))) fail('hash-binding');
+  const issued = epochTime(keyset.issuance_epoch, descriptor.expiry_policy.epoch_seconds); const expires = epochTime(keyset.expiry_epoch, descriptor.expiry_policy.epoch_seconds); if (BigInt(noteValue.issued_at) !== issued || BigInt(noteValue.expires_at) !== expires) fail('time'); if (headerTime !== undefined && (uint64(headerTime) < issued || uint64(headerTime) >= expires)) fail('time');
+}
 
 /** Validate structure and per-asset conservation without verifying opaque envelopes. */
 export function validateTransaction(transaction: Transaction): { transaction_id: Bytes; output_ids: Bytes[] } {
