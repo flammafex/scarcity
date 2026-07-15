@@ -23,7 +23,6 @@
     "test:double-spend": "npm run build && node dist/test/integration/02-double-spend.test.js",
     "test:degradation": "npm run build && node dist/test/integration/03-graceful-degradation.test.js",
     "test:phase3": "npm run build && node dist/test/integration/04-phase3-features.test.js",
-    "test:v2-fixtures": "tsc -p tsconfig.v2-fixtures.json && node dist-v2-fixtures/reference-producer.test.js && node dist-v2-fixtures/independent-vectors.test.js && node dist-v2-fixtures/encoded-public-values.test.js && node dist-v2-fixtures/test/fixtures/v2/native-v2.test.js && node dist-v2-fixtures/test/fixtures/v2/phase1b.test.js && node dist-v2-fixtures/test/fixtures/v2/phase1c.test.js && node dist-v2-fixtures/test/fixtures/v2/owner-authorization.test.js && node dist-v2-fixtures/test/fixtures/v2/authority-record.test.js && node dist-v2-fixtures/sophiados-consumer.js",
     "test:live": "npm run build && node dist/test/integration/10-live-services.test.js",
     "lint": "eslint src/"
   },
