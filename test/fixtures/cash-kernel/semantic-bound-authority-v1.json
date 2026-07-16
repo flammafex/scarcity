@@ -1,0 +1,359 @@
+{
+  "fixture_set": "scarcity-cash-kernel-bound-authority-semantic",
+  "fixture_version": 1,
+  "protocol_status": "pre-schema",
+  "authority": {
+    "approved_snapshot": "40469c8f433f71013ad2928f6fba9b12c4f07380",
+    "decisions_sha256": "dbbb5e7656e68576e744a33577c28f48587aad53e0caead5272659caeed6a0d6",
+    "cash_kernel_sha256": "16d62c8b36af9e73e8c96369764b4be889ab3bf883981d0b27496f6f04a0fdce"
+  },
+  "inherits": {
+    "path": "test/fixtures/cash-kernel/semantic-v1.json",
+    "sha256": "e353ca1df40c9925edbb24c380e6018c66cb966073e63e74731d0259bc4b4967",
+    "statement": "The inherited fixture remains unchanged."
+  },
+  "notice": "Non-normative proposed fixture pending review. Requests, evidence, and results are opaque test-only values; this file defines no wire schema, cryptography, policy values, or authority topology.",
+  "blocked_vector_categories": [
+    "canonical_note_bytes",
+    "canonical_certificate_bytes",
+    "canonical_claim_bytes",
+    "canonical_spend_bytes",
+    "note_field_schema",
+    "certificate_field_schema",
+    "cryptographic_suite",
+    "signature_or_blind_signature_vectors",
+    "bearer_ownership_construction",
+    "claim_proof_construction",
+    "claim_nullifier_derivation",
+    "cash_nullifier_derivation",
+    "demurrage_rate",
+    "demurrage_epoch_length",
+    "demurrage_age_origin",
+    "demurrage_rounding",
+    "dividend_schedule",
+    "civic_issuance_caps",
+    "threshold_size_or_topology",
+    "consensus_or_signature_topology",
+    "issuer_and_key_lifecycle",
+    "audit_granularity",
+    "per_note_lineage",
+    "privacy_metadata_profile",
+    "relay_wire_protocol",
+    "first_federation_identifiers_or_keys",
+    "bridge_positive_semantics",
+    "htlc_positive_semantics",
+    "request_reference_derivation",
+    "request_reference_encoding",
+    "result_reference_derivation",
+    "result_reference_encoding",
+    "authority_evidence_schema",
+    "authority_evidence_encoding",
+    "policy_evidence_schema",
+    "policy_evidence_encoding",
+    "prior_snapshot_commitment_construction",
+    "operation_binding_proof_construction",
+    "cross_process_replay_coordination"
+  ],
+  "cases": [
+    {
+      "id": "PRIOR-01",
+      "area": "prior_state",
+      "given": "Opening supply and prior-value evidence match the opaque test snapshot.",
+      "when": "The opening state is accepted and the exact prior-note restore is retried.",
+      "expect": {
+        "outcome": "accepted;exact_restore_retry_idempotent",
+        "state": "prior_available_unchanged",
+        "records": ["prior_state_verified", "restore_retry=idempotent"],
+        "error": null
+      }
+    },
+    {
+      "id": "PRIOR-02",
+      "area": "prior_state",
+      "given": "Opening evidence carries changed supply or a changed snapshot reference.",
+      "when": "The opening state is submitted.",
+      "expect": {
+        "outcome": "rejected_before_mutation",
+        "state": "unchanged",
+        "records": [],
+        "error": "unverified_prior_state"
+      }
+    },
+    {
+      "id": "PRIOR-03",
+      "area": "prior_state",
+      "given": "Prior-value evidence has a mismatched reference, value, status, or snapshot.",
+      "when": "Prior-note restoration is submitted.",
+      "expect": {
+        "outcome": "rejected_before_mutation",
+        "state": "unchanged",
+        "records": [],
+        "error": "unverified_prior_state"
+      }
+    },
+    {
+      "id": "CLAIM-03",
+      "area": "claim",
+      "given": "The policy result is bound to a different fixture-only entitlement slot or amount.",
+      "when": "The dividend claim is finalized.",
+      "expect": {
+        "outcome": "rejected_before_mutation",
+        "state": "unchanged",
+        "records": [],
+        "error": "dividend_policy_binding_conflict"
+      }
+    },
+    {
+      "id": "CLAIM-04A",
+      "area": "claim",
+      "given": "The Witness result is valid but bound to another opaque claim.",
+      "when": "The claim is finalized.",
+      "expect": {
+        "outcome": "rejected_before_mutation",
+        "state": "unchanged",
+        "records": [],
+        "error": "claim_witness_binding_conflict"
+      }
+    },
+    {
+      "id": "CLAIM-04B",
+      "area": "claim",
+      "given": "The dividend arithmetic would overflow safe aggregate accounting.",
+      "when": "The claim is finalized.",
+      "expect": {
+        "outcome": "rejected_before_mutation",
+        "state": "unchanged",
+        "records": [],
+        "error": "accounting_overflow"
+      }
+    },
+    {
+      "id": "CIVIC-01",
+      "area": "civic_issuance",
+      "given": "A civic request has identical purpose, amount, capability, threshold, and Witness evidence to a finalized request.",
+      "when": "The exact civic request is retried.",
+      "expect": {
+        "outcome": "retry_idempotent",
+        "state": "one_civic_issuance",
+        "records": ["no_duplicate_civic_issuance"],
+        "error": null
+      }
+    },
+    {
+      "id": "CIVIC-02A",
+      "area": "civic_issuance",
+      "given": "The civic policy result is bound to a different purpose or amount.",
+      "when": "The civic request is submitted.",
+      "expect": {
+        "outcome": "rejected_before_mutation",
+        "state": "unchanged",
+        "records": [],
+        "error": "civic_policy_binding_conflict"
+      }
+    },
+    {
+      "id": "CIVIC-02B",
+      "area": "civic_issuance",
+      "given": "The civic amount exceeds the authorized cap.",
+      "when": "The civic request is submitted.",
+      "expect": {
+        "outcome": "rejected_before_mutation",
+        "state": "unchanged",
+        "records": [],
+        "error": "civic_issuance_cap"
+      }
+    },
+    {
+      "id": "CIVIC-02C",
+      "area": "civic_issuance",
+      "given": "The civic threshold result is invalid.",
+      "when": "The civic request is submitted.",
+      "expect": {
+        "outcome": "rejected_before_mutation",
+        "state": "unchanged",
+        "records": [],
+        "error": "invalid_threshold"
+      }
+    },
+    {
+      "id": "CIVIC-02D",
+      "area": "civic_issuance",
+      "given": "The abstract citizenship capability is missing or invalid.",
+      "when": "The civic request is submitted.",
+      "expect": {
+        "outcome": "rejected_before_mutation",
+        "state": "unchanged",
+        "records": [],
+        "error": "invalid_or_missing_citizenship_capability"
+      }
+    },
+    {
+      "id": "CIVIC-02E",
+      "area": "civic_issuance",
+      "given": "The civic request lacks valid Witness finality.",
+      "when": "The civic request is submitted.",
+      "expect": {
+        "outcome": "rejected_before_mutation",
+        "state": "unchanged",
+        "records": [],
+        "error": "issuance_not_finalized"
+      }
+    },
+    {
+      "id": "CIVIC-02F",
+      "area": "civic_issuance",
+      "given": "The Witness result is valid but bound to a different civic request.",
+      "when": "The civic request is submitted.",
+      "expect": {
+        "outcome": "rejected_before_mutation",
+        "state": "unchanged",
+        "records": [],
+        "error": "civic_witness_binding_conflict"
+      }
+    },
+    {
+      "id": "CIVIC-03",
+      "area": "civic_issuance",
+      "given": "A classified civic issuance would overflow safe aggregate accounting.",
+      "when": "The civic issuance is finalized.",
+      "expect": {
+        "outcome": "rejected_before_mutation",
+        "state": "unchanged",
+        "records": [],
+        "error": "accounting_overflow"
+      }
+    },
+    {
+      "id": "BURN-01",
+      "area": "permanent_burn",
+      "given": "An available opaque input has value greater than the requested partial permanent burn and Witness finality is valid.",
+      "when": "The partial burn is finalized.",
+      "expect": {
+        "outcome": "accepted",
+        "state": "input_burned;opaque_successor_available;remaining_value_preserved",
+        "records": ["permanent_burn=partial", "opaque_successor_created", "supply_reconciled"],
+        "error": null
+      }
+    },
+    {
+      "id": "BURN-02",
+      "area": "permanent_burn",
+      "given": "An available opaque input is fully burned with valid Witness finality.",
+      "when": "The exact full-burn request is retried.",
+      "expect": {
+        "outcome": "accepted;retry_idempotent",
+        "state": "input_burned;no_successor",
+        "records": ["permanent_burn=full", "no_successor", "no_duplicate_burn"],
+        "error": null
+      }
+    },
+    {
+      "id": "BURN-03A",
+      "area": "permanent_burn",
+      "given": "The Witness result is valid but bound to another opaque burn request.",
+      "when": "The burn request is submitted.",
+      "expect": {
+        "outcome": "rejected_before_mutation",
+        "state": "unchanged",
+        "records": [],
+        "error": "burn_witness_binding_conflict"
+      }
+    },
+    {
+      "id": "BURN-03B",
+      "area": "permanent_burn",
+      "given": "The requested burn exceeds available input value or aggregate supply.",
+      "when": "The burn request is submitted.",
+      "expect": {
+        "outcome": "rejected_before_mutation",
+        "state": "unchanged",
+        "records": [],
+        "error": "accounting_underflow"
+      }
+    },
+    {
+      "id": "BURN-03C",
+      "area": "permanent_burn",
+      "given": "A finalized burn is retried with changed opaque request material.",
+      "when": "The changed burn request is submitted.",
+      "expect": {
+        "outcome": "rejected_before_mutation",
+        "state": "unchanged",
+        "records": [],
+        "error": "changed_retry_payload_conflict"
+      }
+    },
+    {
+      "id": "BURN-03D",
+      "area": "permanent_burn",
+      "given": "The requested opaque successor reference collides with an existing note.",
+      "when": "The partial burn is submitted.",
+      "expect": {
+        "outcome": "rejected_before_mutation",
+        "state": "unchanged",
+        "records": [],
+        "error": "successor_collision"
+      }
+    },
+    {
+      "id": "SPEND-04",
+      "area": "spend",
+      "given": "A spend request carries Witness finality for another opaque spend.",
+      "when": "The spend is finalized.",
+      "expect": {
+        "outcome": "rejected_before_mutation",
+        "state": "available_unchanged",
+        "records": [],
+        "error": "spend_not_finalized"
+      }
+    },
+    {
+      "id": "SPEND-05",
+      "area": "spend",
+      "given": "A full opaque request includes an input reference, payload, gross, burn, output reference, capability result, raw Witness evidence reference as a test observation only, and normalized Witness result reference.",
+      "when": "Different raw evidence or envelope references that normalize to the same Witness result are idempotent; only a changed normalized Witness result conflicts; changing every other request field under the same request reference also conflicts. Raw evidence is not retry identity.",
+      "expect": {
+        "outcome": "same_normalized_result_idempotent;changed_normalized_result_conflict;other_request_material_conflicts",
+        "state": "original_spend_unchanged",
+        "records": ["same_normalized_result=different_raw_evidence_or_envelope_idempotent", "raw_Witness_evidence=observation_only", "changed_normalized_result=conflict", "changed_input=conflict", "changed_payload=conflict", "changed_gross=conflict", "changed_burn=conflict", "changed_output_reference=conflict", "changed_capability_result=conflict", "no_duplicate_burn", "no_duplicate_output", "no_state_change"],
+        "error": "changed_retry_payload_conflict"
+      }
+    },
+    {
+      "id": "RECOVERY-02",
+      "area": "recovery",
+      "given": "Recovery state is marked finalized but the supplied valid Witness result is unrelated.",
+      "when": "The wallet reconstructs the state.",
+      "expect": {
+        "outcome": "recovered_without_authority",
+        "state": "finalized_status_not_authoritative",
+        "records": ["not_spendable", "no_issuance", "no_spend", "no_finality"],
+        "error": null
+      }
+    },
+    {
+      "id": "RECOVERY-03",
+      "area": "recovery",
+      "given": "Recovery is repeated with identical authoritative state and then with changed state or Witness result.",
+      "when": "The recovery request is applied.",
+      "expect": {
+        "outcome": "exact_retry_idempotent;changed_recovery_conflict",
+        "state": "one_authoritative_recovery",
+        "records": ["no_duplicate_recovery", "changed_recovery=conflict"],
+        "error": "recovery_conflict"
+      }
+    },
+    {
+      "id": "RELAY-02",
+      "area": "relay",
+      "given": "The same verified finality result arrives through different envelopes, and distinct verified results arrive reordered.",
+      "when": "Relay messages are handled.",
+      "expect": {
+        "outcome": "same_result_deduped;distinct_results_recorded_once",
+        "state": "finality_references=one_each",
+        "records": ["same_finality_reference=one_record", "distinct_finality_reference=A=one_record", "distinct_finality_reference=B=one_record"],
+        "error": null
+      }
+    }
+  ]
+}
