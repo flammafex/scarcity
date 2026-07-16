@@ -22,13 +22,29 @@
    specifications and vectors, then implementation. Proposals and checklists
    are not authority.
 
+## Issuance constitution
+
+8. Primary issuance is an equal, deterministic, anonymous citizen dividend.
+9. Secondary issuance is narrowly capped civic issuance and is threshold-
+   authorized only for enumerated public purposes, such as procurement and
+   initial merchant liquidity.
+10. Permanent demurrage burns are never automatically replaced or redirected.
+11. The polity must establish demand by accepting Scarbucks for defined civic
+    obligations, dues, fees, and services.
+12. Freebird establishes anonymous eligibility only. Witness finalizes
+    claims and spends. Neither determines monetary policy.
+13. Prestige is excluded from the first deployment. Any later governance role
+    for Prestige requires separate approval.
+
 ## Open implementation parameters
 
 The established decisions do not yet fix the following implementation
 parameters:
 
+- dividend schedule;
+- civic issuance caps;
 - demurrage rate, epoch mechanics, and rounding;
-- issuance and liquidity mechanics;
-- governance mechanics;
+- threshold topology;
+- the specific civic acceptance set;
 - privacy, metadata, and deployment profile; and
 - first federation deployment.
