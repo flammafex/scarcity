@@ -1,0 +1,247 @@
+{
+  "fixture_set": "scarcity-cash-kernel-semantic",
+  "fixture_version": 1,
+  "protocol_status": "pre-schema",
+  "authority": {
+    "approved_snapshot": "40469c8f433f71013ad2928f6fba9b12c4f07380",
+    "decisions_sha256": "dbbb5e7656e68576e744a33577c28f48587aad53e0caead5272659caeed6a0d6",
+    "cash_kernel_sha256": "16d62c8b36af9e73e8c96369764b4be889ab3bf883981d0b27496f6f04a0fdce"
+  },
+  "notice": "Non-normative data-only fixture. All values and identifiers are test constants, not policy, caps, wire values, schemas, or deployment configuration.",
+  "blocked_vector_categories": [
+    "canonical_note_bytes",
+    "canonical_certificate_bytes",
+    "canonical_claim_bytes",
+    "canonical_spend_bytes",
+    "note_field_schema",
+    "certificate_field_schema",
+    "cryptographic_suite",
+    "signature_or_blind_signature_vectors",
+    "bearer_ownership_construction",
+    "claim_proof_construction",
+    "claim_nullifier_derivation",
+    "cash_nullifier_derivation",
+    "demurrage_rate",
+    "demurrage_epoch_length",
+    "demurrage_age_origin",
+    "demurrage_rounding",
+    "dividend_schedule",
+    "civic_issuance_caps",
+    "threshold_size_or_topology",
+    "consensus_or_signature_topology",
+    "issuer_and_key_lifecycle",
+    "audit_granularity",
+    "per_note_lineage",
+    "privacy_metadata_profile",
+    "relay_wire_protocol",
+    "first_federation_identifiers_or_keys",
+    "bridge_positive_semantics",
+    "htlc_positive_semantics"
+  ],
+  "cases": [
+    {
+      "id": "ACCOUNTING-01",
+      "area": "accounting",
+      "given": "Starting supply is 1000; dividend issuance is 120; civic issuance is 80; permanent burn is 50.",
+      "when": "The hybrid accounting interval is reconciled.",
+      "expect": {
+        "outcome": "accepted",
+        "state": "closing_supply=1150",
+        "records": ["dividend=120", "civic=80", "permanent_burn=50"],
+        "error": null
+      }
+    },
+    {
+      "id": "ACCOUNTING-02",
+      "area": "accounting",
+      "given": "A finalized transfer has gross value 37.",
+      "when": "The transfer is recorded between notes.",
+      "expect": {
+        "outcome": "accepted",
+        "state": "supply_neutral",
+        "records": ["transfer=37"],
+        "error": null
+      }
+    },
+    {
+      "id": "ACCOUNTING-03",
+      "area": "accounting",
+      "given": "A permanent burn of 20 is finalized and a separate classified civic issuance of 20 is authorized.",
+      "when": "Both records are reconciled.",
+      "expect": {
+        "outcome": "accepted",
+        "state": "burn_and_new_issuance_remain_distinct",
+        "records": ["permanent_burn=20", "classified_civic_issuance=20"],
+        "error": null
+      }
+    },
+    {
+      "id": "ACCOUNTING-04",
+      "area": "accounting",
+      "given": "Starting supply is 500 and a permanent burn of 20 is finalized.",
+      "when": "An automatic unclassified replacement is attempted.",
+      "expect": {
+        "outcome": "rejected",
+        "state": "closing_supply=480",
+        "records": ["permanent_burn=20", "automatic_replacement=none"],
+        "error": "automatic_unclassified_replacement"
+      }
+    },
+    {
+      "id": "ISSUANCE-01",
+      "area": "issuance",
+      "given": "A citizen is eligible and has not claimed the authorized test interval.",
+      "when": "The citizen submits a dividend claim.",
+      "expect": {
+        "outcome": "accepted",
+        "state": "dividend_issued=120",
+        "records": ["classified_dividend=120"],
+        "error": null
+      }
+    },
+    {
+      "id": "ISSUANCE-02",
+      "area": "issuance",
+      "given": "The purpose is enumerated, the civic amount 80 is within the test cap, and the threshold is valid.",
+      "when": "Civic issuance is authorized.",
+      "expect": {
+        "outcome": "accepted",
+        "state": "civic_issued=80",
+        "records": ["classified_civic_issuance=80", "purpose=enumerated"],
+        "error": null
+      }
+    },
+    {
+      "id": "ISSUANCE-03",
+      "area": "issuance",
+      "given": "An issuance request has no dividend classification or enumerated civic purpose.",
+      "when": "The request is submitted.",
+      "expect": {
+        "outcome": "rejected",
+        "state": "no_issuance",
+        "records": [],
+        "error": "unclassified_issuance"
+      }
+    },
+    {
+      "id": "CLAIM-01",
+      "area": "claim",
+      "given": "A claim is UNCLAIMED and has valid anonymous eligibility for the test interval.",
+      "when": "It progresses through pending submission and then receives Witness finality.",
+      "expect": {
+        "outcome": "accepted",
+        "state": "UNCLAIMED->PENDING->FINALIZED; spendable_after_finality",
+        "records": ["claim_pending", "Witness_finality", "dividend_note_created"],
+        "error": null
+      }
+    },
+    {
+      "id": "CLAIM-02",
+      "area": "claim",
+      "given": "A finalized claim uses opaque test certificate TEST-CERT-A for fixture-only entitlement slot TEST-ENTITLEMENT-SLOT-A; both are distinct test-only opaque values, and neither is a protocol key, claim proof, nullifier, stable citizen identifier, or wire value.",
+      "when": "The exact claim is retried and then a different claim is submitted for fixture-only entitlement slot TEST-ENTITLEMENT-SLOT-A.",
+      "expect": {
+        "outcome": "retry_idempotent_conflict_rejected",
+        "state": "one_finalized_claim",
+        "records": ["fixture_only_entitlement_slot=TEST-ENTITLEMENT-SLOT-A", "opaque_test_certificate=TEST-CERT-A", "exact_retry=idempotent", "different_claim=conflict"],
+        "error": "fixture_entitlement_slot_conflict"
+      }
+    },
+    {
+      "id": "SPEND-01",
+      "area": "spend",
+      "given": "An available note has gross value 100; the precomputed test burn is 7; a valid abstract Freebird citizenship capability is present; Witness validation is valid.",
+      "when": "The spend progresses through pending submission and finalized Witness result.",
+      "expect": {
+        "outcome": "accepted",
+        "state": "AVAILABLE->PENDING->SPENT",
+        "records": ["gross=100", "permanent_burn=7", "outputs=93", "Witness_finality"],
+        "error": null
+      }
+    },
+    {
+      "id": "SPEND-02",
+      "area": "spend",
+      "given": "A spend is already finalized with its test burn and state transition.",
+      "when": "The exact spend is retried.",
+      "expect": {
+        "outcome": "retry_idempotent",
+        "state": "unchanged_spent",
+        "records": ["no_duplicate_burn", "no_duplicate_state_transition"],
+        "error": null
+      }
+    },
+    {
+      "id": "SPEND-03",
+      "area": "spend",
+      "given": "Two competing spends use the same input and one exact spend is already finalized.",
+      "when": "A changed retry payload is processed, and separately an exclusive-spend attempt is processed against the already finalized input.",
+      "expect": {
+        "outcome": "changed_retry_payload_conflict;exclusive_spend_conflict_on_finalized_input",
+        "state": "one_finalized_one_conflict",
+        "records": ["changed_retry_payload=conflict", "exclusive_spend_on_finalized_input=conflict", "finalized_input=unchanged", "rejected_or_conflicted_burn=none", "rejected_or_conflicted_output=none"],
+        "error": "changed_retry_payload_conflict;exclusive_spend_conflict"
+      }
+    },
+    {
+      "id": "FREEBIRD-01",
+      "area": "eligibility",
+      "given": "A mint, claim, or spend request has a missing or invalid abstract citizenship capability.",
+      "when": "The operation is submitted.",
+      "expect": {
+        "outcome": "rejected",
+        "state": "unchanged",
+        "records": [],
+        "error": "invalid_or_missing_citizenship_capability"
+      }
+    },
+    {
+      "id": "FREEBIRD-02",
+      "area": "eligibility_privacy",
+      "given": "The observation boundary is tainted with amount, denomination, note identifier or commitment, bearer or owner material, cash nullifier, recipient, demurrage age or burn, or economic operation digest.",
+      "when": "The tainted capability is presented to Freebird.",
+      "expect": {
+        "outcome": "rejected",
+        "state": "zero_economic_data_crosses_boundary",
+        "records": ["taint_rejected"],
+        "error": "economically_tainted_capability"
+      }
+    },
+    {
+      "id": "RECOVERY-01",
+      "area": "recovery",
+      "given": "Recovery input contains verified finalized state plus pending and unverified local state.",
+      "when": "The wallet reconstructs its state.",
+      "expect": {
+        "outcome": "accepted_finalized_and_status_preserved",
+        "state": "finalized_reconstructed;pending_and_unverified_reconstructed_as_status_only",
+        "records": ["pending=preserved_not_spendable_not_money_not_spent", "unverified=preserved_not_spendable_not_money_not_spent", "pending_or_unverified=does_not_create_issuance_or_finality"],
+        "error": null
+      }
+    },
+    {
+      "id": "RELAY-01",
+      "area": "relay",
+      "given": "Relay messages include verified duplicate or reordered Witness results and forged or unverified messages.",
+      "when": "The wallet receives and processes them.",
+      "expect": {
+        "outcome": "verified_duplicate_or_reordered_idempotent;forged_or_unverified_rejected",
+        "state": "only_verified_Witness_result_changes_final_state;transport_has_no_independent_authority",
+        "records": ["verified_duplicate_or_reordered=handled_idempotently", "forged_or_unverified=rejected", "no_transport_created_issuance", "no_transport_created_spend", "no_transport_created_burn", "no_transport_created_finality"],
+        "error": "forged_or_unverified_relay_message"
+      }
+    },
+    {
+      "id": "DEFERRED-01",
+      "area": "deferred_scope",
+      "given": "A bridge, HTLC, or cross-federation transfer is requested.",
+      "when": "The cash kernel receives the request.",
+      "expect": {
+        "outcome": "rejected_before_mutation",
+        "state": "unchanged",
+        "records": [],
+        "error": "deferred_operation"
+      }
+    }
+  ]
+}
