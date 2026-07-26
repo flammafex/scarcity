@@ -23,6 +23,8 @@
     "test:double-spend": "npm run build && node dist/test/integration/02-double-spend.test.js",
     "test:degradation": "npm run build && node dist/test/integration/03-graceful-degradation.test.js",
     "test:phase3": "npm run build && node dist/test/integration/04-phase3-features.test.js",
+    "test:circulation-v1": "npm run build && node dist/test/circulation-v1/foundation.test.js && node dist/test/circulation-v1/freebird-client.test.js && node dist/test/circulation-v1/vault.test.js && node dist/test/circulation-v1/witness-client.test.js && node dist/test/circulation-v1/wallet.test.js",
+    "test:circulation-v1:live": "npm run build && node dist/test/circulation-v1/live/run-live.js",
     "test:live": "npm run build && node dist/test/integration/10-live-services.test.js",
     "lint": "eslint src/"
   },
@@ -37,6 +39,7 @@
   "author": "The Carpocratian Church of Commonality and Equality",
   "license": "Apache-2.0",
   "dependencies": {
+    "@cloudflare/blindrsa-ts": "0.4.4",
     "@msgpack/msgpack": "^3.1.3",
     "@noble/curves": "^1.9.7",
     "@noble/hashes": "^1.4.0",
@@ -45,6 +48,7 @@
     "cborg": "5.1.7",
     "cors": "^2.8.5",
     "express": "^5.2.1",
+    "fs-native-extensions": "1.5.0",
     "pako": "^2.1.0",
     "socks-proxy-agent": "^8.0.5",
     "ws": "^8.18.0"

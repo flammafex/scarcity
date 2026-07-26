@@ -50,3 +50,6 @@ export type { BridgeConfig } from './bridge.js';
 export type { FreebirdAdapterConfig } from './integrations/freebird.js';
 export type { WitnessAdapterConfig } from './integrations/witness.js';
 export type { HyperTokenAdapterConfig } from './integrations/hypertoken.js';
+
+/** Isolated Phase-1 circulation foundation (does not alter legacy protocol APIs). */
+export * from './circulation-v1/index.js';
