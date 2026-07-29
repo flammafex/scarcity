@@ -10,10 +10,17 @@ export const CIRCULATION_CLASS = 'scarcity/circulating-bearer/v1' as const;
 export const FREEBIRD_EXCHANGE_PROFILE = 'freebird/public-bearer-exchange/v2' as const;
 export const FREEBIRD_V5_SUITE = 'RSABSSA-SHA384-PSS-Deterministic' as const;
 export const FREEBIRD_GRAPH_DISCOVERY_VERSION = 2 as const;
-export const GRAPH_ISSUANCE_VERSION = 1 as const;
+export const GRAPH_ISSUANCE_VERSION = 2 as const;
+export const REPLAY_AUTHORITY_VERSION = 1 as const;
 export const V5_BEARER_VERSION = 5 as const;
 export const RECEIPT_LIFETIME_SECONDS = 2_592_000 as const;
 export const EDGE_BUDGET_LIMIT = 100 as const;
+export const GRAPH_ISSUANCE_AUTHORIZATION_HMAC_SHA256 = 'hmac_sha256' as const;
+export const GRAPH_ISSUANCE_AUTHORIZATION_V4_LOCAL = 'v4_local' as const;
+export const GRAPH_ISSUANCE_AUTHORIZATION_DEVELOPMENT_MOCK = 'development_mock' as const;
+export const MAX_GRAPH_AUTHORIZATION_BYTES = 16384 as const;
+export const MAX_GRAPH_BLINDED_MESSAGE_BYTES = 512 as const;
+export const MAX_GRAPH_BLIND_SIGNATURE_BYTES = 512 as const;
 
 export type CanonicalBase64Url = string;
 export type CanonicalLowerHex = string;
@@ -361,28 +368,42 @@ export function parseExchangeAcceptedResponseV2(value: unknown): ExchangeAccepte
   };
 }
 
-export interface GraphIssuanceSelectorV1 {
+export interface GraphIssuanceSelector {
   readonly issuance_policy_id: string;
   readonly graph_id: CanonicalSha256Hex;
   readonly keyset_id: CanonicalSha256Hex;
   readonly descriptor_id: CanonicalSha256Hex;
 }
 
-export interface GraphIssuanceRequestV1 extends GraphIssuanceSelectorV1 {
-  readonly version: 1;
+export interface GraphIssuanceRequest extends GraphIssuanceSelector {
+  readonly version: 2;
   readonly public_operation_id: CanonicalBase64Url;
   readonly blinded_message: CanonicalBase64Url;
   readonly authorization: CanonicalBase64Url;
 }
 
-export interface GraphIssuanceResultV1 extends GraphIssuanceSelectorV1 {
-  readonly version: 1;
+export interface GraphIssuanceResult extends GraphIssuanceSelector {
+  readonly version: 2;
   readonly public_operation_id: CanonicalBase64Url;
   readonly token_key_id: CanonicalSha256Hex;
-  readonly quantity: number;
+  readonly quantity: 1;
   readonly request_digest: CanonicalBase64Url;
   readonly blind_signature: CanonicalBase64Url;
   readonly result_digest: CanonicalBase64Url;
+}
+
+/** Durable V2 inputs for retry/status; validation never consults fresh policy discovery. */
+export interface GraphIssuanceRecoveryContext {
+  readonly request: GraphIssuanceRequest;
+  readonly requestDigest: CanonicalBase64Url;
+  readonly publicOperationId: CanonicalBase64Url;
+  readonly issuancePolicyId: string;
+  readonly graphId: CanonicalSha256Hex;
+  readonly keysetId: CanonicalSha256Hex;
+  readonly descriptorId: CanonicalSha256Hex;
+  readonly statusCapability: CanonicalBase64Url;
+  readonly expectedTokenKeyId: CanonicalSha256Hex;
+  readonly blindingState: unknown;
 }
 
 function issuancePolicyId(value: unknown, field: string): string {
@@ -391,7 +412,7 @@ function issuancePolicyId(value: unknown, field: string): string {
   return text;
 }
 
-function parseGraphIssuanceSelector(value: Record<string, unknown>, field: string): GraphIssuanceSelectorV1 {
+function parseGraphIssuanceSelector(value: Record<string, unknown>, field: string): GraphIssuanceSelector {
   const issuancePolicyId = issuancePolicyIdValue(value.issuance_policy_id, `${field}.issuance_policy_id`);
   const graphId = assertId(value.graph_id, `${field}.graph_id`);
   const keysetId = assertId(value.keyset_id, `${field}.keyset_id`);
@@ -403,29 +424,29 @@ function issuancePolicyIdValue(value: unknown, field: string): string {
   return issuancePolicyId(value, field);
 }
 
-export function parseGraphIssuanceRequestV1(value: unknown): GraphIssuanceRequestV1 {
+export function parseGraphIssuanceRequest(value: unknown): GraphIssuanceRequest {
   const object = record(value, 'graph issuance request');
   exactKeys(object, ['version', 'public_operation_id', 'issuance_policy_id', 'graph_id', 'keyset_id', 'descriptor_id', 'blinded_message', 'authorization'], [], 'graph issuance request');
-  if (object.version !== 1) fail('graph issuance request.version', 'must be 1');
+  if (object.version !== GRAPH_ISSUANCE_VERSION) fail('graph issuance request.version', 'must be 2');
   const selector = parseGraphIssuanceSelector(object, 'graph issuance request');
   const operation = parseOperationId(object.public_operation_id, 'graph issuance request.public_operation_id');
-  const blindedMessage = parseBoundedBase64(object.blinded_message, 'graph issuance request.blinded_message', 512);
-  const authorization = parseBoundedBase64(object.authorization, 'graph issuance request.authorization', 16 * 1024);
-  return { version: 1, public_operation_id: operation, ...selector, blinded_message: blindedMessage, authorization };
+  const blindedMessage = parseBoundedBase64(object.blinded_message, 'graph issuance request.blinded_message', MAX_GRAPH_BLINDED_MESSAGE_BYTES);
+  const authorization = parseBoundedBase64(object.authorization, 'graph issuance request.authorization', MAX_GRAPH_AUTHORIZATION_BYTES);
+  return { version: GRAPH_ISSUANCE_VERSION, public_operation_id: operation, ...selector, blinded_message: blindedMessage, authorization };
 }
 
-export function parseGraphIssuanceResultV1(value: unknown): GraphIssuanceResultV1 {
+export function parseGraphIssuanceResult(value: unknown): GraphIssuanceResult {
   const object = record(value, 'graph issuance result');
   exactKeys(object, ['version', 'public_operation_id', 'issuance_policy_id', 'graph_id', 'keyset_id', 'descriptor_id', 'token_key_id', 'quantity', 'request_digest', 'blind_signature', 'result_digest'], [], 'graph issuance result');
-  if (object.version !== 1) fail('graph issuance result.version', 'must be 1');
+  if (object.version !== GRAPH_ISSUANCE_VERSION) fail('graph issuance result.version', 'must be 2');
   const operation = parseOperationId(object.public_operation_id, 'graph issuance result.public_operation_id');
   const selector = parseGraphIssuanceSelector(object, 'graph issuance result');
   const tokenKeyId = assertId(object.token_key_id, 'graph issuance result.token_key_id');
-  const quantity = integerValue(object.quantity, 'graph issuance result.quantity', 1, 0xffff_ffff);
+  if (object.quantity !== 1) fail('graph issuance result.quantity', 'must be 1');
   parseDigest(object.request_digest, 'graph issuance result.request_digest');
-  const blindSignature = parseBoundedBase64(object.blind_signature, 'graph issuance result.blind_signature', 512);
+  const blindSignature = parseBoundedBase64(object.blind_signature, 'graph issuance result.blind_signature', MAX_GRAPH_BLIND_SIGNATURE_BYTES);
   parseDigest(object.result_digest, 'graph issuance result.result_digest');
-  return { version: 1, public_operation_id: operation, ...selector, token_key_id: tokenKeyId, quantity, request_digest: object.request_digest as string, blind_signature: blindSignature, result_digest: object.result_digest as string };
+  return { version: GRAPH_ISSUANCE_VERSION, public_operation_id: operation, ...selector, token_key_id: tokenKeyId, quantity: 1, request_digest: object.request_digest as string, blind_signature: blindSignature, result_digest: object.result_digest as string };
 }
 
 export interface V5BearerArtifactEnvelope {
@@ -470,7 +491,7 @@ export interface GraphTransitionV2 {
   readonly source_slots: readonly [GraphTransitionSlotV2];
   readonly output_slots: readonly [GraphTransitionSlotV2];
   readonly budget_id: string;
-  readonly budget_limit: 100;
+  readonly budget_limit: number;
   readonly admission_state: AdmissionState;
 }
 
@@ -498,54 +519,72 @@ export interface ExchangeGraphV2 {
   readonly transitions: readonly [GraphTransitionV2, GraphTransitionV2];
 }
 
-export interface GraphIssuancePolicyV1 {
-  readonly issuance_policy_id: string;
-  readonly graph_id: CanonicalSha256Hex;
-  readonly keyset_id: CanonicalSha256Hex;
-  readonly descriptor_id: CanonicalSha256Hex;
-  readonly budget_id: string;
-  readonly budget_limit: 100;
-  readonly quantity: 1;
-  readonly admission_state: AdmissionState;
-  readonly authorization_scheme: 'v4_local';
-}
+export type GraphIssuanceAuthorizationScheme =
+  | typeof GRAPH_ISSUANCE_AUTHORIZATION_HMAC_SHA256
+  | typeof GRAPH_ISSUANCE_AUTHORIZATION_V4_LOCAL
+  | typeof GRAPH_ISSUANCE_AUTHORIZATION_DEVELOPMENT_MOCK;
 
-export interface GraphIssuanceDiscoveryV1 {
-  readonly version: 1;
-  readonly policies: readonly [GraphIssuancePolicyDiscoveryV1, ...GraphIssuancePolicyDiscoveryV1[]];
-}
-
-export interface GraphIssuancePolicyDiscoveryV1 {
+export interface GraphIssuancePolicy {
   readonly issuance_policy_id: string;
   readonly graph_id: CanonicalSha256Hex;
   readonly keyset_id: CanonicalSha256Hex;
   readonly descriptor_id: CanonicalSha256Hex;
   readonly budget_id: string;
   readonly budget_limit: number;
-  readonly quantity: number;
+  readonly quantity: 1;
   readonly admission_state: AdmissionState;
-  readonly authorization_scheme: string;
+  readonly authorization_scheme: GraphIssuanceAuthorizationScheme;
+  readonly authorization_scope_digest_b64?: CanonicalBase64Url;
 }
 
-export function parseGraphIssuanceDiscoveryV1(value: unknown): GraphIssuanceDiscoveryV1 {
+export interface GraphIssuanceReplayAuthorityDiscovery {
+  readonly authority_id: CanonicalBase64Url;
+  readonly v4_scope_digest_tombstones: readonly CanonicalBase64Url[];
+}
+
+export interface GraphIssuanceDiscovery {
+  readonly version: 2;
+  readonly policies: readonly GraphIssuancePolicy[];
+  readonly replay_authority: GraphIssuanceReplayAuthorityDiscovery;
+}
+
+function parseAuthorizationScheme(value: unknown, field: string): GraphIssuanceAuthorizationScheme {
+  if (value !== GRAPH_ISSUANCE_AUTHORIZATION_HMAC_SHA256 && value !== GRAPH_ISSUANCE_AUTHORIZATION_V4_LOCAL && value !== GRAPH_ISSUANCE_AUTHORIZATION_DEVELOPMENT_MOCK) fail(field, 'unsupported authorization scheme');
+  return value;
+}
+
+export function parseGraphIssuanceDiscovery(value: unknown): GraphIssuanceDiscovery {
   const root = record(value, 'graph issuance discovery');
-  exactKeys(root, ['version', 'policies'], [], 'graph issuance discovery');
-  if (root.version !== 1 || !Array.isArray(root.policies) || root.policies.length === 0 || root.policies.length > 64) {
+  exactKeys(root, ['version', 'policies', 'replay_authority'], [], 'graph issuance discovery');
+  if (root.version !== GRAPH_ISSUANCE_VERSION || !Array.isArray(root.policies) || root.policies.length > 64) {
     fail('graph issuance discovery', 'invalid version or policy bounds');
   }
+  const authority = record(root.replay_authority, 'graph issuance discovery.replay_authority');
+  exactKeys(authority, ['authority_id', 'v4_scope_digest_tombstones'], [], 'graph issuance discovery.replay_authority');
+  const authorityId = encodeCanonicalBase64Url(decodeCanonicalBase64Url(authority.authority_id, 32, 'graph issuance discovery.replay_authority.authority_id'));
+  if (!Array.isArray(authority.v4_scope_digest_tombstones) || authority.v4_scope_digest_tombstones.length > 64) fail('graph issuance discovery.replay_authority.v4_scope_digest_tombstones', 'invalid tombstone bounds');
+  const tombstones = authority.v4_scope_digest_tombstones.map((entry, index) => encodeCanonicalBase64Url(decodeCanonicalBase64Url(entry, 32, `graph issuance discovery.replay_authority.v4_scope_digest_tombstones[${index}]`)));
+  if (new Set(tombstones).size !== tombstones.length) fail('graph issuance discovery.replay_authority.v4_scope_digest_tombstones', 'duplicate tombstone');
   const policies = root.policies.map((entry, index) => {
     const policy = record(entry, `graph issuance discovery.policies[${index}]`);
-    exactKeys(policy, ['issuance_policy_id', 'graph_id', 'keyset_id', 'descriptor_id', 'budget_id', 'budget_limit', 'quantity', 'admission_state', 'authorization_scheme'], [], `graph issuance discovery.policies[${index}]`);
+    const hasScope = Object.prototype.hasOwnProperty.call(policy, 'authorization_scope_digest_b64');
+    exactKeys(policy, ['issuance_policy_id', 'graph_id', 'keyset_id', 'descriptor_id', 'budget_id', 'budget_limit', 'quantity', 'admission_state', 'authorization_scheme'], hasScope ? ['authorization_scope_digest_b64'] : [], `graph issuance discovery.policies[${index}]`);
     const policyId = stringValue(policy.issuance_policy_id, `graph issuance discovery.policies[${index}].issuance_policy_id`, 1, 128);
     const budgetId = stringValue(policy.budget_id, `graph issuance discovery.policies[${index}].budget_id`, 1, 128);
     if (!/^[\x00-\x7f]+$/.test(policyId) || !/^[\x00-\x7f]+$/.test(budgetId)) fail(`graph issuance discovery.policies[${index}]`, 'policy and budget IDs must be bounded ASCII');
     const budgetLimit = integerValue(policy.budget_limit, `graph issuance discovery.policies[${index}].budget_limit`, 1);
-    const quantity = integerValue(policy.quantity, `graph issuance discovery.policies[${index}].quantity`, 1);
-    if (quantity > budgetLimit) fail(`graph issuance discovery.policies[${index}].quantity`, 'exceeds policy budget');
+    if (policy.quantity !== 1) fail(`graph issuance discovery.policies[${index}].quantity`, 'must be 1');
     const admissionState = policy.admission_state;
     if (admissionState !== 'accepting_new' && admissionState !== 'recovery_only' && admissionState !== 'disabled') fail(`graph issuance discovery.policies[${index}].admission_state`, 'invalid admission state');
-    const authorizationScheme = stringValue(policy.authorization_scheme, `graph issuance discovery.policies[${index}].authorization_scheme`, 1, 128);
-    if (!/^[\x00-\x7f]+$/.test(authorizationScheme)) fail(`graph issuance discovery.policies[${index}].authorization_scheme`, 'must be bounded ASCII');
+    const authorizationScheme = parseAuthorizationScheme(policy.authorization_scheme, `graph issuance discovery.policies[${index}].authorization_scheme`);
+    let scope: CanonicalBase64Url | undefined;
+    if (authorizationScheme === GRAPH_ISSUANCE_AUTHORIZATION_V4_LOCAL) {
+      if (!hasScope) fail(`graph issuance discovery.policies[${index}].authorization_scope_digest_b64`, 'required for v4_local');
+      scope = encodeCanonicalBase64Url(decodeCanonicalBase64Url(policy.authorization_scope_digest_b64, 32, `graph issuance discovery.policies[${index}].authorization_scope_digest_b64`));
+      if (!tombstones.includes(scope)) fail(`graph issuance discovery.policies[${index}].authorization_scope_digest_b64`, 'scope is not retained by replay authority');
+    } else if (hasScope) {
+      fail(`graph issuance discovery.policies[${index}].authorization_scope_digest_b64`, 'forbidden for non-V4 authorization');
+    }
     return {
       issuance_policy_id: policyId,
       graph_id: assertId(policy.graph_id, `graph issuance discovery.policies[${index}].graph_id`),
@@ -553,14 +592,15 @@ export function parseGraphIssuanceDiscoveryV1(value: unknown): GraphIssuanceDisc
       descriptor_id: assertId(policy.descriptor_id, `graph issuance discovery.policies[${index}].descriptor_id`),
       budget_id: budgetId,
       budget_limit: budgetLimit,
-      quantity,
+      quantity: 1 as const,
       admission_state: admissionState as AdmissionState,
       authorization_scheme: authorizationScheme,
+      ...(scope === undefined ? {} : { authorization_scope_digest_b64: scope }),
     };
   });
   if (new Set(policies.map((policy) => policy.issuance_policy_id)).size !== policies.length) fail('graph issuance discovery.policies', 'duplicate policy ID');
   if (new Set(policies.map((policy) => policy.budget_id)).size !== policies.length) fail('graph issuance discovery.policies', 'duplicate budget ID');
-  return { version: 1, policies: policies as [GraphIssuancePolicyDiscoveryV1, ...GraphIssuancePolicyDiscoveryV1[]] };
+  return { version: 2, policies, replay_authority: { authority_id: authorityId, v4_scope_digest_tombstones: tombstones } };
 }
 
 export interface ExchangeDiscoveryV2 {
@@ -572,14 +612,15 @@ export interface ExchangeDiscoveryV2 {
 
 export interface FreebirdDiscoveryDocumentV2 {
   readonly exchange: ExchangeDiscoveryV2;
+  readonly graph_issuance?: GraphIssuanceDiscovery;
 }
 
 /** Relevant fields from Freebird's complete /.well-known/keys container. */
 export interface FreebirdKeysDiscoverySnapshotV2 extends FreebirdDiscoveryDocumentV2 {
-  readonly graph_issuance?: GraphIssuanceDiscoveryV1;
+  readonly graph_issuance?: GraphIssuanceDiscovery;
 }
 
-export interface DisabledPublicationAcknowledgementV1 {
+export interface DisabledPublicationAcknowledgement {
   readonly version: 'freebird/exchange-disabled-publication-ack/v1';
   readonly issuer_id: string;
   readonly graph_id: CanonicalSha256Hex;
@@ -589,10 +630,20 @@ export interface DisabledPublicationAcknowledgementV1 {
   readonly acknowledged_at_unix: number;
 }
 
-export interface Phase1BootstrapManifestV1 {
-  readonly version: 'scarcity/bootstrap-manifest/v1';
+export interface BootstrapManifest {
+  readonly version: 'scarcity/bootstrap-manifest/v2';
   readonly issuer_id: string;
   readonly discovery: FreebirdDiscoveryDocumentV2;
-  readonly graph_issuance: GraphIssuancePolicyV1;
-  readonly disabled_publication_ack: DisabledPublicationAcknowledgementV1;
+  readonly graph_issuance: GraphIssuancePolicy;
+  readonly disabled_publication_ack: DisabledPublicationAcknowledgement;
+}
+
+export interface ReplayAuthorityProbe {
+  readonly version: 1;
+  readonly authority_id: CanonicalBase64Url;
+  readonly probe_id: CanonicalBase64Url;
+}
+
+export interface ReplayAuthorityProof extends ReplayAuthorityProbe {
+  readonly proof: CanonicalBase64Url;
 }

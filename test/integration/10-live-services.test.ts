@@ -123,6 +123,22 @@ export async function runLiveServicesTest(): Promise<void> {
       attestation.witnessIds.length > 0,
       `Expected witness IDs, got ${attestation.witnessIds.length}`
     );
+    runner.assert(
+      attestation.canonical?.contract_version === 'sophia/v1',
+      'Attestation must retain canonical sophia/v1 Witness artifact'
+    );
+    runner.assert(
+      attestation.canonical?.artifact_type === 'witness.signed_attestation',
+      'Attestation canonical artifact must be witness.signed_attestation'
+    );
+    runner.assert(
+      attestation.canonical?.attestation?.hash === attestation.hash,
+      'Canonical Witness artifact must bind the attested hash'
+    );
+    runner.assert(
+      ['multisig', 'aggregated'].includes(attestation.canonical?.signatures?.kind),
+      'Canonical Witness artifact must identify the signature kind'
+    );
 
     // Ensure these aren't fallback witness IDs
     const hasFallback = attestation.witnessIds.some(

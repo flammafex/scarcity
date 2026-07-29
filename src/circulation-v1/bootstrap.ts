@@ -8,19 +8,22 @@ import {
   RECEIPT_LIFETIME_SECONDS,
   assertCanonicalSha256Hex,
   decodeCanonicalBase64Url,
+  encodeCanonicalBase64Url,
   encodeCanonicalLowerHex,
   parseFreebirdV5Descriptor,
   parseGraphSlotSelector,
   type AdmissionState,
-  type DisabledPublicationAcknowledgementV1,
+  type DisabledPublicationAcknowledgement,
   type ExchangeDiscoveryV2,
   type ExchangeGraphV2,
-  type GraphIssuancePolicyV1,
+  type GraphIssuancePolicy,
+  type GraphIssuanceDiscovery,
   type GraphKeysetV2,
   type GraphTransitionV2,
-  type Phase1BootstrapManifestV1,
+  type BootstrapManifest,
   type ReceiptVerificationKeyV2,
   type FreebirdDiscoveryDocumentV2,
+  parseGraphIssuanceDiscovery,
 } from './types.js';
 import {
   canonicalDescriptorIdV2,
@@ -246,7 +249,7 @@ function parseDiscovery(
   options: BootstrapValidationOptions,
 ): FreebirdDiscoveryDocumentV2 {
   const root = object(value, 'discovery');
-  exact(root, ['exchange'], [], 'discovery');
+  exact(root, ['exchange'], ['graph_issuance'], 'discovery');
   const exchange = object(root.exchange, 'discovery.exchange');
   exact(exchange, ['active_graph', 'retained_graphs', 'active_receipt_key', 'retained_receipt_keys'], [], 'discovery.exchange');
   const rawGraph = object(exchange.active_graph, 'discovery.exchange.active_graph');
@@ -278,12 +281,16 @@ function parseDiscovery(
       budgetContracts.set(transition.budget_id, contract);
     }
   }
-  return { exchange: { active_graph: activeGraph, retained_graphs: retainedGraphs, active_receipt_key: activeReceiptKey, retained_receipt_keys: retainedReceiptKeys } };
+  const graphIssuance = root.graph_issuance === undefined ? undefined : parseGraphIssuanceDiscovery(root.graph_issuance);
+  return {
+    exchange: { active_graph: activeGraph, retained_graphs: retainedGraphs, active_receipt_key: activeReceiptKey, retained_receipt_keys: retainedReceiptKeys },
+    ...(graphIssuance === undefined ? {} : { graph_issuance: graphIssuance }),
+  };
 }
 
-function parseGraphIssuancePolicy(value: unknown, graph: ExchangeGraphV2, field: string): GraphIssuancePolicyV1 {
+function parseGraphIssuancePolicy(value: unknown, graph: ExchangeGraphV2, discovery: GraphIssuanceDiscovery, field: string): GraphIssuancePolicy {
   const item = object(value, field);
-  exact(item, ['issuance_policy_id', 'graph_id', 'keyset_id', 'descriptor_id', 'budget_id', 'budget_limit', 'quantity', 'admission_state', 'authorization_scheme'], [], field);
+  exact(item, ['issuance_policy_id', 'graph_id', 'keyset_id', 'descriptor_id', 'budget_id', 'budget_limit', 'quantity', 'admission_state', 'authorization_scheme', 'authorization_scope_digest_b64'], [], field);
   const policyId = text(item.issuance_policy_id, `${field}.issuance_policy_id`, 1, 128);
   if (!/^[\x00-\x7f]+$/.test(policyId)) invalid(`${field}.issuance_policy_id`, 'must be bounded ASCII');
   const outputKeysetId = id(item.keyset_id, `${field}.keyset_id`);
@@ -300,6 +307,11 @@ function parseGraphIssuancePolicy(value: unknown, graph: ExchangeGraphV2, field:
   const outputKeyset = graph.keysets.find((keyset) => keyset.keyset_id === outputKeysetId)!;
   if (outputKeyset.keyset_id !== graph.keysets[0].keyset_id) invalid(`${field}.keyset_id`, 'genesis output must target K0');
   if (outputKeyset.descriptor_ids[0] !== outputDescriptorId) invalid(`${field}.descriptor_id`, 'must be K0 descriptor');
+  const scope = encodeCanonicalBase64Url(decodeCanonicalBase64Url(item.authorization_scope_digest_b64, 32, `${field}.authorization_scope_digest_b64`));
+  if (!discovery.replay_authority.v4_scope_digest_tombstones.includes(scope)) invalid(`${field}.authorization_scope_digest_b64`, 'must be retained by replay authority');
+  const published = discovery.policies.find((candidate) => candidate.issuance_policy_id === policyId);
+  if (published === undefined || published.graph_id !== policyGraphId || published.keyset_id !== outputKeysetId || published.descriptor_id !== outputDescriptorId || published.budget_id !== budgetId || published.budget_limit !== EDGE_BUDGET_LIMIT || published.quantity !== 1 || published.admission_state !== 'accepting_new' || published.authorization_scheme !== 'v4_local' || published.authorization_scope_digest_b64 !== scope) invalid(field, 'does not match published V2 policy');
+  if (graph.descriptors.find((descriptor) => descriptor.descriptor_id === outputDescriptorId)?.token_key_id === undefined) invalid(`${field}.descriptor_id`, 'K0 descriptor token key is missing');
   return {
     issuance_policy_id: policyId,
     graph_id: policyGraphId,
@@ -310,10 +322,11 @@ function parseGraphIssuancePolicy(value: unknown, graph: ExchangeGraphV2, field:
     quantity: 1,
     admission_state: 'accepting_new',
     authorization_scheme: 'v4_local',
+    authorization_scope_digest_b64: scope,
   };
 }
 
-function parseAcknowledgement(value: unknown, issuerId: string, graphId: string, transitionIds: readonly string[]): DisabledPublicationAcknowledgementV1 {
+function parseAcknowledgement(value: unknown, issuerId: string, graphId: string, transitionIds: readonly string[]): DisabledPublicationAcknowledgement {
   const item = object(value, 'disabled_publication_ack');
   exact(item, ['version', 'issuer_id', 'graph_id', 'disabled_transition_ids', 'acknowledged_admission_state', 'operator', 'acknowledged_at_unix'], [], 'disabled_publication_ack');
   if (item.version !== 'freebird/exchange-disabled-publication-ack/v1') invalid('disabled_publication_ack.version', 'wrong version');
@@ -325,12 +338,50 @@ function parseAcknowledgement(value: unknown, issuerId: string, graphId: string,
   if (item.acknowledged_admission_state !== 'disabled') invalid('disabled_publication_ack.acknowledged_admission_state', 'must be disabled');
   text(item.operator, 'disabled_publication_ack.operator');
   integer(item.acknowledged_at_unix, 'disabled_publication_ack.acknowledged_at_unix', 1);
-  return item as unknown as DisabledPublicationAcknowledgementV1;
+  return item as unknown as DisabledPublicationAcknowledgement;
 }
 
 /** Parse and validate a complete public discovery snapshot. */
 export function validateDiscoverySnapshot(value: unknown, options: BootstrapValidationOptions = {}): ExchangeDiscoveryV2 {
   return parseDiscovery(value, { ...options, circulationState: options.circulationState ?? 'accepting_new' }).exchange;
+}
+
+/** Validate the V2 graph-issuance policy/replay-authority container. */
+export function validateGraphIssuanceDiscoverySnapshot(
+  value: unknown,
+  exchange: ExchangeDiscoveryV2,
+): GraphIssuanceDiscovery {
+  const discovery = parseGraphIssuanceDiscovery(value);
+  const graphs = [exchange.active_graph, ...exchange.retained_graphs];
+  for (const policy of discovery.policies) {
+    const graph = graphs.find((candidate) => candidate.graph_id === policy.graph_id);
+    if (graph === undefined) invalid(`graph issuance discovery policy ${policy.issuance_policy_id}`, 'unknown graph');
+    const keyset = graph.keysets.find((candidate) => candidate.keyset_id === policy.keyset_id);
+    if (keyset === undefined || !keyset.descriptor_ids.includes(policy.descriptor_id)) invalid(`graph issuance discovery policy ${policy.issuance_policy_id}`, 'unknown descriptor/keyset binding');
+    if (policy.admission_state === 'accepting_new' && graph.graph_id !== exchange.active_graph.graph_id) invalid(`graph issuance discovery policy ${policy.issuance_policy_id}`, 'retained graph cannot accept new issuance');
+  }
+  return discovery;
+}
+
+/** Enforce Freebird's permanent replay-authority and append-only scope rules. */
+export function validateGraphIssuanceDiscoveryUpdate(
+  exchange: ExchangeDiscoveryV2,
+  previous: unknown | undefined,
+  next: unknown | undefined,
+): GraphIssuanceDiscovery | undefined {
+  if (next === undefined) {
+    if (previous !== undefined) invalid('graph issuance discovery', 'replay authority container cannot be removed');
+    return undefined;
+  }
+  const parsedNext = validateGraphIssuanceDiscoverySnapshot(next, exchange);
+  if (previous === undefined) return parsedNext;
+  const parsedPrevious = parseGraphIssuanceDiscovery(previous);
+  if (parsedPrevious.replay_authority.authority_id !== parsedNext.replay_authority.authority_id) invalid('graph issuance discovery.replay_authority.authority_id', 'authority identity changed');
+  const retained = new Set(parsedNext.replay_authority.v4_scope_digest_tombstones);
+  for (const scope of parsedPrevious.replay_authority.v4_scope_digest_tombstones) {
+    if (!retained.has(scope)) invalid('graph issuance discovery.replay_authority.v4_scope_digest_tombstones', 'tombstones are not append-only');
+  }
+  return parsedNext;
 }
 
 /**
@@ -340,15 +391,16 @@ export function validateDiscoverySnapshot(value: unknown, options: BootstrapVali
 export function validateBootstrapManifest(
   value: unknown,
   options: BootstrapValidationOptions = {},
-): Phase1BootstrapManifestV1 {
+): BootstrapManifest {
   const root = object(value, 'bootstrap manifest');
   exact(root, ['version', 'issuer_id', 'discovery', 'graph_issuance', 'disabled_publication_ack'], [], 'bootstrap manifest');
-  if (root.version !== 'scarcity/bootstrap-manifest/v1') invalid('bootstrap manifest.version', 'wrong version');
+  if (root.version !== 'scarcity/bootstrap-manifest/v2') invalid('bootstrap manifest.version', 'wrong version');
   const issuerId = text(root.issuer_id, 'bootstrap manifest.issuer_id');
   const discovery = parseDiscovery(root.discovery, { ...options, issuerId });
+  if (discovery.graph_issuance === undefined) invalid('bootstrap manifest.discovery.graph_issuance', 'V2 graph issuance discovery is required');
   const activeGraph = discovery.exchange.active_graph;
   const transitionIds = activeGraph.transitions.map((transition) => transition.transition_id);
-  const graphIssuance = parseGraphIssuancePolicy(root.graph_issuance, activeGraph, 'bootstrap manifest.graph_issuance');
+  const graphIssuance = parseGraphIssuancePolicy(root.graph_issuance, activeGraph, discovery.graph_issuance, 'bootstrap manifest.graph_issuance');
   const acknowledgement = parseAcknowledgement(root.disabled_publication_ack, issuerId, activeGraph.graph_id, transitionIds);
   if (activeGraph.transitions.some((transition) => transition.admission_state !== 'disabled')) {
     // The acknowledgement is the lifecycle prerequisite; accepting discovery
@@ -356,16 +408,13 @@ export function validateBootstrapManifest(
     if (options.circulationState !== 'accepting_new') invalid('bootstrap manifest.discovery.exchange.active_graph.transitions', 'must be disabled before the lifecycle switch');
   }
   return {
-    version: 'scarcity/bootstrap-manifest/v1',
+    version: 'scarcity/bootstrap-manifest/v2',
     issuer_id: issuerId,
     discovery,
     graph_issuance: graphIssuance,
     disabled_publication_ack: acknowledgement,
   };
 }
-
-/** Alias named after the contract's local component. */
-export const validatePhase1BootstrapManifest = validateBootstrapManifest;
 
 /** A useful fixed-profile assertion for already parsed snapshots. */
 export function assertFixedCirculationProfile(

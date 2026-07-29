@@ -6,11 +6,18 @@ This frozen contract composes exactly these dependency revisions:
 
 | Dependency | Required pin |
 |---|---|
-| Freebird genesis-plus-circulation deployment | `29b9476` |
+| Freebird v0.8.1 genesis-plus-circulation deployment | `7aded788b9fc492b5b9ae3ca0f05a3d3f3c662a6` |
 | Witness durable attestation-job API | `41c130f` |
 | HyperToken strict dispatch/final projection | `922ec01` |
 
-All three pins are required for the frozen Phase-1 contract. The Freebird `29b9476` deployment includes the V2 transition graph revision `f632348` plus graph issuance and admission authorization for a complete genesis-plus-circulation deployment. The circulation wire semantics originate with the Freebird V2 graph revision `f632348`; it is included in the single Freebird deployment pin, not a separate service pin. A different revision of any dependency is outside this contract until compatibility is reviewed and this contract is explicitly revised. The Witness pin has the legacy timestamp endpoint removed. This document defines Scarcity behavior; it does not change those services' wire formats.
+All three pins are required for the frozen Phase-1 contract. The Freebird
+`7aded788b9fc492b5b9ae3ca0f05a3d3f3c662a6` (`v0.8.1`) deployment includes the
+V2 transition graph, V2 graph issuance, and admission authorization for a
+complete genesis-plus-circulation deployment. A different revision of any
+dependency is outside this contract until compatibility is reviewed and this
+contract is explicitly revised. The Witness pin has the legacy timestamp
+endpoint removed. This document defines Scarcity behavior; it does not change
+those services' wire formats.
 
 ## 1. Fixed profile
 

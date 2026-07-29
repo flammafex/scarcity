@@ -17,8 +17,7 @@ The following dependency revisions are part of this contract:
 
 | Dependency | Required pin | Phase-1 role |
 |---|---:|---|
-| Freebird graph issuance and admission authorizer | `29b9476` | Genesis graph-issuance operation and generic `v4_local` one-use admission |
-| Freebird transition graph | `f632348` | Subsequent E01/E10 circulation |
+| Freebird v0.8.1 graph issuance, admission authorizer, and transition graph | `7aded788b9fc492b5b9ae3ca0f05a3d3f3c662a6` | Genesis graph-issuance operation, generic `v4_local` one-use admission, and subsequent E01/E10 circulation |
 | Witness attestation jobs | `41c130f` | Post-acceptance evidence for circulation only |
 | HyperToken safety APIs | `922ec01` | Non-monetary local/transport safety for circulation only |
 
@@ -181,7 +180,7 @@ all of the following deployment inputs:
    preprovisions the active and retained receipt-key configuration required by
    the circulation contract, it MUST record its deployment values and
    validity/retention policy before circulation. This is not a graph-issuance
-   prerequisite: `GraphIssuanceResultV1` has no receipt or receipt key, and
+   prerequisite: the V2 graph-issuance result has no receipt or receipt key, and
    genesis MUST NOT use or verify either.
 7. **Redis configuration.** The shared Redis endpoint/cluster, database or
    namespace, TLS and ACL settings, durability/availability mode, and the
@@ -191,7 +190,7 @@ all of the following deployment inputs:
 
 The manifest is a deployment control record, not a replacement Freebird wire
 object. Wire objects MUST be produced and parsed only through the APIs and
-canonical encodings in Freebird `29b9476`. In particular, this document does
+canonical encodings in Freebird `7aded788b9fc492b5b9ae3ca0f05a3d3f3c662a6`. In particular, this document does
 not add JSON members, headers, route names, or alternate status values.
 
 ### 4.2 Disabled-first acknowledgement
@@ -328,15 +327,15 @@ even when ordinary committed-result/status retention ends.
 
 ### 6.1 Native wire contract rule
 
-The graph-issuance request, `GraphIssuanceResultV1`, status response,
+The graph-issuance request, `GraphIssuanceResult` V2 result, status response,
 capability transport, canonical encodings, and HTTP route are the exact types
-and APIs provided by Freebird `29b9476`. This document intentionally does not
+and APIs provided by Freebird `7aded788b9fc492b5b9ae3ca0f05a3d3f3c662a6`. This document intentionally does not
 reproduce or invent request/status field lists. Implementations MUST
 import/use those native types, reject unknown or non-canonical fields as
 required by that SDK, and MUST NOT create a Scarcity-specific wrapper that
 changes the wire contract.
 
-`GraphIssuanceResultV1` contains only its selectors, `quantity`, request
+The V2 graph-issuance result contains only its selectors, `quantity`, request
 digest, blind signature, and result digest. It has no receipt, receipt key,
 receipt digest, or receipt signature. No graph-issuance acceptance rule may
 require any of those absent values.
@@ -373,7 +372,7 @@ metadata, or HyperToken messages.
 Only a graph-issuance HTTP `200` with `Cache-Control: no-store` can be an
 acceptance candidate. The client MUST reject any successful response without
 the `no-store` directive. It MUST strictly parse the native
-`GraphIssuanceResultV1` with unknown fields rejected and then perform these
+V2 graph-issuance result with unknown fields rejected and then perform these
 checks in order:
 
 1. validate the result selectors against the submitted request, require the
@@ -577,7 +576,7 @@ minimum, the fixture set MUST include:
    by Freebird's `nullifier_key_v4` and `v4_spend_key(nullifier)`, and
    `TTL = -1` after restart and beyond ordinary operation/result retention.
 4. **Genesis request/result vectors:** native SDK request and exact
-   `GraphIssuanceResultV1` encodings, K0 selector/output binding, quantity-one
+   V2 graph-issuance result encodings, K0 selector/output binding, quantity-one
    binding, strict request/result-digest validation, RFC 9474 unblinding and
    finalization, K0 descriptor artifact verification, rejected unknown fields,
    HTTP `200` acceptance, missing `Cache-Control: no-store`, and valid-looking
@@ -605,7 +604,8 @@ Every deterministic credential, nonce, capability, blinding value, key, or
 Redis test value in a fixture MUST be labeled **TEST-ONLY**. Deterministic or
 reused values are prohibited in production.
 
-The future native Freebird graph-issuance consumer at `29b9476` MUST execute
+The future native Freebird graph-issuance consumer at
+`7aded788b9fc492b5b9ae3ca0f05a3d3f3c662a6` MUST execute
 the Freebird wire, authorizer, Redis, budget, and committed-result fixtures.
 The future Scarcity genesis client and bootstrap-manifest validator MUST
 execute the local preparation, profile validation, acceptance, vault, and

@@ -14,6 +14,8 @@ phase labels and redacted failure messages.
 Before running this check, operators must provide:
 
 - one shared Redis instance for the Freebird issuer/verifier deployment;
+- a verifier-owned replay-authority probe context registered in that verifier's
+  spend-store (the issuer has no public challenge-registration endpoint);
 - the disabled-first bootstrap acknowledgement and the operator-approved
   switch to the accepting K0/K1 graph;
 - the native Phase-1 V4 admission policy, with one-use redemption credentials;
@@ -32,7 +34,7 @@ artifact or budget charge is created.
 The runner talks only to the pinned Freebird discovery endpoint,
 `POST /v1/public/graph/issue`, its matching
 `GET /v1/public/graph/issue/status?public_operation_id=...` status route,
-`POST /v2/public/exchange`, and Witness `/v1/network` plus
+`POST /v1/public/graph/replay-authority/probe`, `POST /v2/public/exchange`, and Witness `/v1/network` plus
 `/v1/attestations`. It must not be pointed at the removed legacy graph
 issuance routes, a legacy timestamp endpoint, HyperToken, a public explorer,
 or a projection service.
@@ -46,6 +48,9 @@ All variables below are required; there are no defaults.
 | `SCARCITY_LIVE_FREEBIRD_ORIGIN` | HTTPS origin, or loopback HTTP origin; no path/query/fragment |
 | `SCARCITY_LIVE_WITNESS_ORIGIN` | HTTPS origin, or loopback HTTP origin; no path/query/fragment |
 | `SCARCITY_LIVE_ISSUER_ID` | Issuer identity pinned in discovery |
+| `SCARCITY_LIVE_REPLAY_AUTHORITY_ID` | Canonical base64url, exactly 32 bytes; must match discovery |
+| `SCARCITY_LIVE_REPLAY_AUTHORITY_PROBE_ID` | Canonical base64url, exactly 32 bytes; verifier-registered probe ID |
+| `SCARCITY_LIVE_REPLAY_AUTHORITY_CHALLENGE` | Canonical base64url, exactly 32 bytes; pre-registered verifier challenge |
 | `SCARCITY_LIVE_WITNESS_NETWORK_ID` | Expected Witness `NetworkConfig.id` |
 | `SCARCITY_LIVE_V4_ADMISSION` | One-use canonical base64url V4 redemption token |
 | `SCARCITY_LIVE_WALLET_A_ID` | Canonical base64url, exactly 16 bytes |
@@ -82,8 +87,10 @@ polling limits.
 The run performs this bounded sequence:
 
 1. Fetches and validates pinned Freebird discovery and the configured graph.
-2. Fetches Witness network configuration and requires three nodes.
-3. Creates two in-memory wallets and issues one K0 artifact to wallet A using
+2. Verifies one issuer replay-authority probe using the supplied verifier-registered
+   challenge/probe context; it never generates or registers local challenge material.
+3. Fetches Witness network configuration and requires three nodes.
+4. Creates two in-memory wallets and issues one K0 artifact to wallet A using
    the supplied V4 credential.
 4. Repeats the committed graph-issuance POST with the exact canonical request
    and header-only capability, requiring the identical result and unchanged

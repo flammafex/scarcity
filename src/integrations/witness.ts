@@ -8,7 +8,12 @@
  */
 
 import { Crypto } from '../crypto.js';
-import type { WitnessClient, Attestation, TorConfig } from '../types.js';
+import type {
+  WitnessClient,
+  Attestation,
+  TorConfig,
+  SophiaWitnessSignedAttestation,
+} from '../types.js';
 import { bls12_381 } from '@noble/curves/bls12-381';
 import { TorProxy } from '../tor.js';
 
@@ -24,6 +29,139 @@ export interface WitnessAdapterConfig {
    * Intended for local development/testing only.
    */
   readonly allowInsecureFallback?: boolean;
+}
+
+const CONTRACT_VERSION = 'sophia/v1' as const;
+
+function lowerHex(value: string, name: string): string {
+  const normalized = value.toLowerCase();
+  if (!/^[0-9a-f]+$/.test(normalized)) {
+    throw new Error(`${name} must be lowercase hex`);
+  }
+  return normalized;
+}
+
+function sha256Hex(value: string, name: string): string {
+  const normalized = lowerHex(value, name);
+  if (normalized.length !== 64) {
+    throw new Error(`${name} must be a 32-byte SHA-256 hex value`);
+  }
+  return normalized;
+}
+
+function timestampSeconds(timestamp: number): number {
+  return timestamp > 4_200_000_000 ? Math.floor(timestamp / 1000) : timestamp;
+}
+
+function timestampMilliseconds(timestamp: number): number {
+  return timestamp < 4_200_000_000 ? timestamp * 1000 : timestamp;
+}
+
+function normalizeSignatureSet(raw: any): SophiaWitnessSignedAttestation['signatures'] {
+  if (Array.isArray(raw)) {
+    return {
+      kind: 'multisig',
+      signatures: raw.map((signature: any, index: number) => ({
+        witness_id: String(signature.witness_id),
+        signature: lowerHex(String(signature.signature), `signatures[${index}].signature`),
+      })),
+    };
+  }
+
+  if (raw?.kind === 'multisig' && Array.isArray(raw.signatures)) {
+    return {
+      kind: 'multisig',
+      signatures: raw.signatures.map((signature: any, index: number) => ({
+        witness_id: String(signature.witness_id),
+        signature: lowerHex(String(signature.signature), `signatures[${index}].signature`),
+      })),
+    };
+  }
+
+  if (raw?.kind === 'aggregated' && raw.signature && Array.isArray(raw.signers)) {
+    return {
+      kind: 'aggregated',
+      signature: lowerHex(String(raw.signature), 'signatures.signature'),
+      signers: raw.signers.map(String),
+    };
+  }
+
+  if (Array.isArray(raw?.signatures)) {
+    return {
+      kind: 'multisig',
+      signatures: raw.signatures.map((signature: any, index: number) => ({
+        witness_id: String(signature.witness_id),
+        signature: lowerHex(String(signature.signature), `signatures[${index}].signature`),
+      })),
+    };
+  }
+
+  if (raw?.signature && Array.isArray(raw.signers)) {
+    return {
+      kind: 'aggregated',
+      signature: lowerHex(String(raw.signature), 'signatures.signature'),
+      signers: raw.signers.map(String),
+    };
+  }
+
+  throw new Error('Witness signatures must be multisig or aggregated');
+}
+
+function normalizeSignedAttestation(raw: any): SophiaWitnessSignedAttestation {
+  const signed = raw?.attestation?.attestation ? raw.attestation : raw;
+  const attestation = signed?.attestation;
+  if (!attestation) {
+    throw new Error('Witness signed attestation missing attestation');
+  }
+
+  return {
+    contract_version: CONTRACT_VERSION,
+    artifact_type: 'witness.signed_attestation',
+    attestation: {
+      hash: sha256Hex(String(attestation.hash), 'attestation.hash'),
+      timestamp: timestampSeconds(Number(attestation.timestamp)),
+      network_id: String(attestation.network_id ?? attestation.networkId),
+      sequence: Number(attestation.sequence ?? 0),
+    },
+    signatures: normalizeSignatureSet(signed.signatures),
+  };
+}
+
+function signatureCount(canonical: SophiaWitnessSignedAttestation): number {
+  return canonical.signatures.kind === 'multisig'
+    ? canonical.signatures.signatures.length
+    : canonical.signatures.signers.length;
+}
+
+function signatureStrings(canonical: SophiaWitnessSignedAttestation): string[] {
+  return canonical.signatures.kind === 'multisig'
+    ? canonical.signatures.signatures.map(signature => signature.signature)
+    : [canonical.signatures.signature];
+}
+
+function signerIds(canonical: SophiaWitnessSignedAttestation): string[] {
+  return canonical.signatures.kind === 'multisig'
+    ? canonical.signatures.signatures.map(signature => signature.witness_id)
+    : [...canonical.signatures.signers];
+}
+
+function toWireSignedAttestation(canonical: SophiaWitnessSignedAttestation): any {
+  const signatures = canonical.signatures.kind === 'multisig'
+    ? {
+        signatures: canonical.signatures.signatures.map(signature => ({
+          witness_id: signature.witness_id,
+          signature: signature.signature,
+        })),
+      }
+    : {
+        signature: canonical.signatures.signature,
+        signers: [...canonical.signatures.signers],
+      };
+
+  return {
+    attestation: { ...canonical.attestation },
+    signatures,
+  };
 }
 
 /**
@@ -120,6 +258,27 @@ export class WitnessAdapter implements WitnessClient {
     return String(error ?? 'unknown error');
   }
 
+  private signatureCount(signedAttestation: any): number {
+    try {
+      return signatureCount(normalizeSignedAttestation(signedAttestation));
+    } catch {
+      return 0;
+    }
+  }
+
+  private parseSignedAttestation(data: any, fallbackHash: string): Attestation {
+    const canonical = normalizeSignedAttestation(data?.attestation ?? data);
+
+    return {
+      hash: canonical.attestation.hash ?? fallbackHash,
+      timestamp: timestampMilliseconds(canonical.attestation.timestamp),
+      signatures: signatureStrings(canonical),
+      witnessIds: signerIds(canonical),
+      canonical,
+      raw: canonical,
+    };
+  }
+
   /**
    * Initialize by fetching network configuration
    * Tries all gateways and succeeds if at least one responds
@@ -202,52 +361,7 @@ export class WitnessAdapter implements WitnessClient {
 
           if (response.ok) {
             const data = await response.json();
-
-            // Transform Witness API response to Scarcity's Attestation format
-            const signaturesData = data.attestation?.signatures;
-            let signatures: string[] = [];
-            let witnessIds: string[] = [];
-
-            if (signaturesData) {
-              // Check if it's MultiSig variant (has 'signatures' array)
-              if (Array.isArray(signaturesData.signatures)) {
-                signatures = signaturesData.signatures.map((sig: any) =>
-                  typeof sig.signature === 'string' ? sig.signature : JSON.stringify(sig.signature)
-                );
-                witnessIds = signaturesData.signatures.map((sig: any) => sig.witness_id);
-              }
-              // Check if it's Aggregated variant (has 'signature' and 'signers')
-              else if (signaturesData.signature && Array.isArray(signaturesData.signers)) {
-                signatures = [
-                  typeof signaturesData.signature === 'string'
-                    ? signaturesData.signature
-                    : JSON.stringify(signaturesData.signature)
-                ];
-                witnessIds = signaturesData.signers;
-              }
-            }
-
-            // Ensure hash is always a hex string (gateway may return Uint8Array)
-            let hashString = hash; // Default to input hash
-            const gatewayHash = data.attestation?.attestation?.hash;
-            if (gatewayHash) {
-              if (typeof gatewayHash === 'string') {
-                hashString = gatewayHash;
-              } else if (gatewayHash instanceof Uint8Array || Array.isArray(gatewayHash)) {
-                // Convert Uint8Array or array to hex string
-                hashString = Crypto.toHex(new Uint8Array(gatewayHash));
-              }
-            }
-
-            return {
-              hash: hashString,
-              timestamp: data.attestation?.attestation?.timestamp
-                ? data.attestation.attestation.timestamp * 1000  // Convert seconds to milliseconds
-                : Date.now(),
-              signatures,
-              witnessIds,
-              raw: data.attestation  // Store original SignedAttestation for verification
-            };
+            return this.parseSignedAttestation(data, hash);
           }
           return null;
         } catch (error) {
@@ -317,46 +431,39 @@ export class WitnessAdapter implements WitnessClient {
       return false;
     }
 
-    // If we have the raw SignedAttestation, use it directly
-    // Otherwise, try to reconstruct (may fail if signatures aren't in correct format)
-    const witnessAttestation = attestation.raw || {
-      attestation: {
-        hash: attestation.hash,
-        timestamp: attestation.timestamp,
-        network_id: this.networkId,
-        sequence: 0
-      },
-      signatures: attestation.signatures.map((sig, idx) => ({
-        witness_id: attestation.witnessIds[idx],
-        signature: sig
-      }))
-    };
-
-    // Try each gateway sequentially until one succeeds
-    for (const gatewayUrl of this.gatewayUrls) {
+    if (this.config) {
+      let canonical: SophiaWitnessSignedAttestation;
       try {
-        const response = await this.fetch(`${gatewayUrl}/v1/verify`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ attestation: witnessAttestation })
-        });
-
-        if (response.ok) {
-          const data = await response.json();
-          return data.valid === true;
-        }
-      } catch (error) {
-        this.warningOnce(
-          `verify:${gatewayUrl}`,
-          `[Witness] Gateway ${gatewayUrl} verification failed (${this.summarizeError(error)})`
-        );
-        continue;
+        canonical = this.toCanonicalSignedAttestation(attestation);
+      } catch {
+        return false;
       }
-    }
+      const witnessAttestation = toWireSignedAttestation(canonical);
 
-    // All gateways failed - try local BLS verification
-    if (attestation.raw && this.config) {
-      const blsResult = this.verifyBLSLocal(attestation);
+      // Try each gateway sequentially until one succeeds
+      for (const gatewayUrl of this.gatewayUrls) {
+        try {
+          const response = await this.fetch(`${gatewayUrl}/v1/verify`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ attestation: witnessAttestation })
+          });
+
+          if (response.ok) {
+            const data = await response.json();
+            return data.valid === true;
+          }
+        } catch (error) {
+          this.warningOnce(
+            `verify:${gatewayUrl}`,
+            `[Witness] Gateway ${gatewayUrl} verification failed (${this.summarizeError(error)})`
+          );
+          continue;
+        }
+      }
+
+      // All gateways failed - try local BLS verification
+      const blsResult = this.verifyBLSLocal(canonical);
       if (blsResult !== null) {
         console.log('[Witness] Verified attestation locally via BLS');
         return blsResult;
@@ -378,6 +485,34 @@ export class WitnessAdapter implements WitnessClient {
     );
   }
 
+  private toCanonicalSignedAttestation(attestation: Attestation): SophiaWitnessSignedAttestation {
+    if (attestation.canonical) {
+      return normalizeSignedAttestation(attestation.canonical);
+    }
+
+    if (attestation.raw) {
+      return normalizeSignedAttestation(attestation.raw);
+    }
+
+    return {
+      contract_version: CONTRACT_VERSION,
+      artifact_type: 'witness.signed_attestation',
+      attestation: {
+        hash: sha256Hex(attestation.hash, 'attestation.hash'),
+        timestamp: timestampSeconds(attestation.timestamp),
+        network_id: this.networkId,
+        sequence: 0,
+      },
+      signatures: {
+        kind: 'multisig',
+        signatures: attestation.signatures.map((sig, idx) => ({
+          witness_id: attestation.witnessIds[idx],
+          signature: sig,
+        })),
+      },
+    };
+  }
+
   /**
    * Verify BLS aggregated signature locally
    *
@@ -385,11 +520,11 @@ export class WitnessAdapter implements WitnessClient {
    * Returns null if verification cannot be performed (missing data),
    * true if valid, false if invalid.
    */
-  private verifyBLSLocal(attestation: Attestation): boolean | null {
+  private verifyBLSLocal(attestation: SophiaWitnessSignedAttestation): boolean | null {
     try {
       // Check if this is a BLS aggregated signature
-      const signaturesData = attestation.raw?.signatures;
-      if (!signaturesData || !signaturesData.signature || !Array.isArray(signaturesData.signers)) {
+      const signaturesData = attestation.signatures;
+      if (signaturesData.kind !== 'aggregated') {
         return null; // Not BLS aggregated format
       }
 
@@ -415,7 +550,7 @@ export class WitnessAdapter implements WitnessClient {
       }
 
       // Prepare the message (attestation hash)
-      const attestationData = attestation.raw.attestation;
+      const attestationData = attestation.attestation;
       const messageBytes = this.serializeAttestationForSigning(attestationData);
 
       // Verify BLS signature
@@ -610,7 +745,7 @@ export class WitnessAdapter implements WitnessClient {
           if (response.ok) {
             const data = await response.json();
             // Check if we have valid attestation with threshold signatures
-            const sigCount = data.attestation?.signatures?.length || 0;
+            const sigCount = this.signatureCount(data.attestation);
             const threshold = this.config.threshold || 2;
             return {
               seen: sigCount >= threshold,
@@ -689,31 +824,7 @@ export class WitnessAdapter implements WitnessClient {
 
           if (response.ok) {
             const data = await response.json();
-
-            // Ensure hash is always a hex string (gateway may return Uint8Array)
-            let hashString = hash; // Default to input hash
-            const gatewayHash = data.attestation?.attestation?.hash;
-            if (gatewayHash) {
-              if (typeof gatewayHash === 'string') {
-                hashString = gatewayHash;
-              } else if (gatewayHash instanceof Uint8Array || Array.isArray(gatewayHash)) {
-                // Convert Uint8Array or array to hex string
-                hashString = Crypto.toHex(new Uint8Array(gatewayHash));
-              }
-            }
-
-            return {
-              hash: hashString,
-              timestamp: data.attestation?.attestation?.timestamp
-                ? data.attestation.attestation.timestamp * 1000  // Convert seconds to milliseconds
-                : Date.now(),
-              signatures: data.attestation?.signatures?.map((sig: any) =>
-                typeof sig.signature === 'string' ? sig.signature : JSON.stringify(sig.signature)
-              ) || [],
-              witnessIds: data.attestation?.signatures?.map((sig: any) =>
-                sig.witness_id
-              ) || []
-            };
+            return this.parseSignedAttestation(data, hash);
           }
           return null;
         } catch (error) {

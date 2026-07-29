@@ -17,8 +17,8 @@ import {
   parseExchangeAcceptedResponseV2,
   parseExchangeRequestV2,
   parseExchangeResultV2,
-  parseGraphIssuanceRequestV1,
-  parseGraphIssuanceResultV1,
+  parseGraphIssuanceRequest,
+  parseGraphIssuanceResult,
   parseGraphSlotSelector,
   type CanonicalBase64Url,
   type ExchangeAcceptedResponseV2,
@@ -26,9 +26,10 @@ import {
   type ExchangeRequestV2,
   type ExchangeResultV2,
   type FreebirdV5DescriptorV2,
-  type GraphIssuanceRequestV1,
-  type GraphIssuanceResultV1,
-  type GraphIssuancePolicyV1,
+  type GraphIssuanceRequest,
+  type GraphIssuanceResult,
+  type GraphIssuancePolicy,
+  type GraphIssuanceRecoveryContext,
   type GraphSlotSelectorV2,
   RECEIPT_LIFETIME_SECONDS,
 } from './types.js';
@@ -36,7 +37,7 @@ import {
   FREEBIRD_GRAPH_ISSUANCE_CANONICAL_DIGEST_VERIFIER,
   FREEBIRD_V2_CANONICAL_DIGEST_VERIFIER,
   canonicalExchangeRequestDigestV2,
-  canonicalGraphIssuanceRequestDigestV1,
+  canonicalGraphIssuanceRequestDigest,
   computeExchangeReceiptDigest,
   decodeV4RedemptionTokenBase64,
   encodeV5BearerArtifactBase64,
@@ -81,8 +82,9 @@ export class CirculationWalletError extends Error {
 
 /** The minimal native Freebird dependency required by the wallet. */
 export interface WalletFreebirdClient {
-  readonly processOrRecoverGraphIssuance: FreebirdHttpClient['processOrRecoverGraphIssuance'];
-  readonly observeGraphIssuanceStatus: FreebirdHttpClient['observeGraphIssuanceStatus'];
+  readonly issueGraphIssuance: FreebirdHttpClient['issueGraphIssuance'];
+  readonly recoverGraphIssuance: FreebirdHttpClient['recoverGraphIssuance'];
+  readonly getGraphIssuanceStatus: FreebirdHttpClient['getGraphIssuanceStatus'];
   readonly processOrRecoverV2: FreebirdHttpClient['processOrRecoverV2'];
   readonly observeExchangeStatus: FreebirdHttpClient['observeExchangeStatus'];
 }
@@ -91,7 +93,7 @@ export interface WalletDiscoverySource {
   readonly fetch: () => Promise<ValidatedFreebirdDiscovery>;
 }
 
-export interface CirculationWalletV1Options {
+export interface CirculationWalletOptions {
   readonly vault: LocalVault;
   readonly discovery: ValidatedFreebirdDiscovery;
   readonly issuerId: string;
@@ -101,7 +103,7 @@ export interface CirculationWalletV1Options {
   readonly nowUnixSeconds?: () => number;
 }
 
-export interface OpenCirculationWalletV1Options extends Omit<CirculationWalletV1Options, 'discovery'> {
+export interface OpenCirculationWalletOptions extends Omit<CirculationWalletOptions, 'discovery'> {
   readonly discovery: ValidatedFreebirdDiscovery | WalletDiscoverySource;
 }
 
@@ -242,14 +244,14 @@ function status(recordId: CanonicalBase64Url, operationId: CanonicalBase64Url, s
   return { kind, record_id: recordId, operation_id: operationId, state, ...(errorCode === undefined ? {} : { error_code: errorCode }) };
 }
 
-export class CirculationWalletV1 {
+export class CirculationWallet {
   readonly vault: LocalVault;
   readonly discovery: ValidatedFreebirdDiscovery;
   readonly freebird: WalletFreebirdClient;
   private readonly randomBytes: (length: number) => Uint8Array;
   private readonly nowUnixSeconds: () => number;
 
-  constructor(options: CirculationWalletV1Options) {
+  constructor(options: CirculationWalletOptions) {
     this.vault = options.vault;
     this.discovery = validatePinnedDiscovery(options.discovery, options.issuerId);
     this.freebird = options.freebird;
@@ -258,9 +260,9 @@ export class CirculationWalletV1 {
   }
 
   /** Load a discovery source and validate it before constructing the wallet. */
-  static async open(options: OpenCirculationWalletV1Options): Promise<CirculationWalletV1> {
+  static async open(options: OpenCirculationWalletOptions): Promise<CirculationWallet> {
     const discovery = 'fetch' in options.discovery ? await options.discovery.fetch() : options.discovery;
-    return new CirculationWalletV1({ ...options, discovery });
+    return new CirculationWallet({ ...options, discovery });
   }
 
   private activeGraph(): ValidatedFreebirdDiscovery['exchange']['active_graph'] {
@@ -272,7 +274,8 @@ export class CirculationWalletV1 {
   }
 
   private descriptor(descriptorId: string): FreebirdV5DescriptorV2 {
-    const descriptor = this.activeGraph().descriptors.find((candidate) => candidate.descriptor_id === descriptorId);
+    const graphs = [this.discovery.exchange.active_graph, ...this.discovery.exchange.retained_graphs];
+    const descriptor = graphs.flatMap((graph) => graph.descriptors).find((candidate) => candidate.descriptor_id === descriptorId);
     if (descriptor === undefined) fail('descriptor is not in the pinned graph');
     return descriptor;
   }
@@ -311,7 +314,7 @@ export class CirculationWalletV1 {
     };
   }
 
-  private issuancePolicy(policyId?: string): { readonly policy: GraphIssuancePolicyV1; readonly descriptor: FreebirdV5DescriptorV2 } {
+  private issuancePolicy(policyId?: string): { readonly policy: GraphIssuancePolicy; readonly descriptor: FreebirdV5DescriptorV2 } {
     const policies = this.discovery.graph_issuance?.policies;
     if (policies === undefined || policies.length === 0) fail('graph issuance policy is missing from pinned discovery');
     const discovered = policyId === undefined
@@ -328,6 +331,7 @@ export class CirculationWalletV1 {
       || discovered.quantity !== 1
       || discovered.admission_state !== 'accepting_new'
       || discovered.authorization_scheme !== 'v4_local'
+      || discovered.authorization_scope_digest_b64 === undefined
     ) fail('graph issuance policy is not the fixed K0 profile');
     const descriptor = this.descriptor(discovered.descriptor_id);
     return {
@@ -341,6 +345,7 @@ export class CirculationWalletV1 {
         quantity: 1,
         admission_state: 'accepting_new',
         authorization_scheme: 'v4_local',
+        authorization_scope_digest_b64: discovered.authorization_scope_digest_b64,
       },
       descriptor,
     };
@@ -364,15 +369,16 @@ export class CirculationWalletV1 {
   /** Prepare one K0 graph-issuance request without exposing its secrets. */
   async prepareGenesis(input: { readonly authorization: string; readonly issuance_policy_id?: string }): Promise<GenesisPreparation> {
     const { policy, descriptor } = this.issuancePolicy(input.issuance_policy_id);
-    decodeV4RedemptionTokenBase64(input.authorization);
+    const admission = decodeV4RedemptionTokenBase64(input.authorization);
+    if (policy.authorization_scope_digest_b64 === undefined || !equalBytes(admission.scope_digest, decodeCanonicalBase64Url(policy.authorization_scope_digest_b64, 32, 'authorization_scope_digest_b64'))) fail('authorization scope does not match V2 policy');
     const operation = encodeCanonicalBase64Url(bytes(16, this.randomBytes));
     const capability = encodeCanonicalBase64Url(bytes(32, this.randomBytes));
     const nonce = bytes(32, this.randomBytes);
     const publicKey = await this.publicKey(descriptor);
     const preparation = await blindV5Message(descriptor, publicKey, nonce);
     try {
-      const request = parseGraphIssuanceRequestV1({
-        version: 1,
+      const request = parseGraphIssuanceRequest({
+        version: 2,
         public_operation_id: operation,
         issuance_policy_id: policy.issuance_policy_id,
         graph_id: policy.graph_id,
@@ -386,6 +392,7 @@ export class CirculationWalletV1 {
         status_capability: capability,
         preparation_snapshot_ref: this.snapshotRef('genesis'),
         request,
+        expected_token_key_id: descriptor.token_key_id,
         output_nonce: preparation.nonce,
         message: preparation.message,
         blinding_state: preparation.blinding_state,
@@ -413,9 +420,10 @@ export class CirculationWalletV1 {
     const genesis = record as GenesisIssuanceVaultRecord;
     if (genesis.state === 'current') return status(recordId as CanonicalBase64Url, genesis.operation_id, 'current', 'committed');
     if (genesis.state === 'rejected') return status(recordId as CanonicalBase64Url, genesis.operation_id, 'rejected', 'rejected');
-    if (genesis.state === 'prepared') await this.vault.markGenesisSubmitted(recordId);
+    const fresh = genesis.state === 'prepared';
+    if (fresh) await this.vault.markGenesisSubmitted(recordId);
     const current = await this.record(recordId) as GenesisIssuanceVaultRecord;
-    return this.performGenesis(recordId as CanonicalBase64Url, current);
+    return this.performGenesis(recordId as CanonicalBase64Url, current, fresh);
   }
 
   async recoverGenesis(recordId: string, expected?: ExactRecoveryExpectation): Promise<WalletOperationStatus> {
@@ -429,16 +437,30 @@ export class CirculationWalletV1 {
     const genesis = record as GenesisIssuanceVaultRecord;
     if (expected.status_capability !== undefined) equalBase64(expected.status_capability, genesis.status_capability ?? '', 'genesis.status_capability');
     if (expected.request !== undefined) {
-      const request = parseGraphIssuanceRequestV1(expected.request);
-      equalBase64(encodeCanonicalBase64Url(canonicalGraphIssuanceRequestDigestV1(request)), encodeCanonicalBase64Url(canonicalGraphIssuanceRequestDigestV1(genesis.request)), 'genesis.request_digest');
+      const request = parseGraphIssuanceRequest(expected.request);
+      equalBase64(encodeCanonicalBase64Url(canonicalGraphIssuanceRequestDigest(request)), encodeCanonicalBase64Url(canonicalGraphIssuanceRequestDigest(genesis.request)), 'genesis.request_digest');
     }
   }
 
-  private async performGenesis(recordId: CanonicalBase64Url, record: GenesisIssuanceVaultRecord): Promise<WalletOperationStatus> {
+  private async performGenesis(recordId: CanonicalBase64Url, record: GenesisIssuanceVaultRecord, fresh = false): Promise<WalletOperationStatus> {
     if (record.status_capability === null) fail('genesis status capability is unavailable');
-    let outcome: FreebirdPostOutcome<GraphIssuanceResultV1>;
+    let outcome: FreebirdPostOutcome<GraphIssuanceResult>;
+    const recovery: GraphIssuanceRecoveryContext = {
+      request: record.request,
+      requestDigest: encodeCanonicalBase64Url(canonicalGraphIssuanceRequestDigest(record.request)),
+      publicOperationId: record.operation_id,
+      issuancePolicyId: record.request.issuance_policy_id,
+      graphId: record.request.graph_id,
+      keysetId: record.request.keyset_id,
+      descriptorId: record.request.descriptor_id,
+      statusCapability: record.status_capability,
+      expectedTokenKeyId: record.expected_token_key_id,
+      blindingState: record.blinding_state,
+    };
     try {
-      outcome = await this.freebird.processOrRecoverGraphIssuance(record.request, record.status_capability);
+      outcome = fresh
+        ? await this.freebird.issueGraphIssuance(record.request, record.status_capability)
+        : await this.freebird.recoverGraphIssuance(recovery);
     } catch {
       return status(recordId, record.operation_id, 'submitted_unknown', 'ambiguous', 'transport_failure');
     }
@@ -456,15 +478,15 @@ export class CirculationWalletV1 {
     return status(recordId, record.operation_id, 'current', 'committed');
   }
 
-  private async finalizeGenesisArtifact(record: GenesisIssuanceVaultRecord, resultValue: GraphIssuanceResultV1): Promise<CanonicalBase64Url> {
-    const result = parseGraphIssuanceResultV1(resultValue);
-    const policy = this.issuancePolicy(record.request.issuance_policy_id);
+  private async finalizeGenesisArtifact(record: GenesisIssuanceVaultRecord, resultValue: GraphIssuanceResult): Promise<CanonicalBase64Url> {
+    const result = parseGraphIssuanceResult(resultValue);
+    const descriptor = this.descriptor(record.request.descriptor_id);
     equalBase64(record.operation_id, result.public_operation_id, 'genesis result.public_operation_id');
     equalText(record.request.issuance_policy_id, result.issuance_policy_id, 'genesis result.issuance_policy_id');
     equalText(record.request.graph_id, result.graph_id, 'genesis result.graph_id');
     equalText(record.request.keyset_id, result.keyset_id, 'genesis result.keyset_id');
     equalText(record.request.descriptor_id, result.descriptor_id, 'genesis result.descriptor_id');
-    equalText(policy.descriptor.token_key_id, result.token_key_id, 'genesis result.token_key_id');
+    equalText(descriptor.token_key_id, result.token_key_id, 'genesis result.token_key_id');
     if (result.quantity !== 1) fail('genesis result.quantity: expected one');
     verifyGraphIssuanceRequestDigest(record.request, result, FREEBIRD_GRAPH_ISSUANCE_CANONICAL_DIGEST_VERIFIER);
     verifyGraphIssuanceResultDigest(result, FREEBIRD_GRAPH_ISSUANCE_CANONICAL_DIGEST_VERIFIER);
@@ -474,17 +496,17 @@ export class CirculationWalletV1 {
     const blindingState = decodeCanonicalBase64Url(record.blinding_state, undefined, 'genesis.blinding_state');
     const preparation: V5BlindPreparationRecord = {
       nonce,
-      token_key_id: policy.descriptor.token_key_id,
-      issuer_id: policy.descriptor.issuer_id,
+      token_key_id: descriptor.token_key_id,
+      issuer_id: descriptor.issuer_id,
       message,
       blinded_value: record.request.blinded_message,
       blinding_state: blindingState,
     };
     try {
-      const publicKey = await this.publicKey(policy.descriptor);
-      const finalized = await finalizeV5Message(policy.descriptor, publicKey, preparation, result.blind_signature);
-      if (!await verifyV5Signature(policy.descriptor, publicKey, preparation, finalized.signature)) fail('genesis artifact signature verification failed');
-      return artifactFromFinalized(policy.descriptor, finalized);
+      const publicKey = await this.publicKey(descriptor);
+      const finalized = await finalizeV5Message(descriptor, publicKey, preparation, result.blind_signature);
+      if (!await verifyV5Signature(descriptor, publicKey, preparation, finalized.signature)) fail('genesis artifact signature verification failed');
+      return artifactFromFinalized(descriptor, finalized);
     } finally {
       nonce.fill(0);
       message.fill(0);

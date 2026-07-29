@@ -15,12 +15,40 @@ export interface KeyPair {
   readonly privateKey: PrivateKey;
 }
 
+export type SophiaWitnessSignatures =
+  | {
+      readonly kind: 'multisig';
+      readonly signatures: ReadonlyArray<{
+        readonly witness_id: string;
+        readonly signature: string;
+      }>;
+    }
+  | {
+      readonly kind: 'aggregated';
+      readonly signature: string;
+      readonly signers: readonly string[];
+    };
+
+export interface SophiaWitnessSignedAttestation {
+  readonly contract_version: 'sophia/v1';
+  readonly artifact_type: 'witness.signed_attestation';
+  readonly attestation: {
+    readonly hash: string;
+    readonly timestamp: number;
+    readonly network_id: string;
+    readonly sequence: number;
+  };
+  readonly signatures: SophiaWitnessSignatures;
+}
+
 export interface Attestation {
   readonly hash: string;
   readonly timestamp: number;
   readonly signatures: string[];
   readonly witnessIds: string[];
-  readonly raw?: any;  // Original SignedAttestation from Witness for verification
+  readonly canonical?: SophiaWitnessSignedAttestation;
+  /** Deprecated compatibility cache; prefer canonical. */
+  readonly raw?: any;
 }
 
 export interface TransferPackage {

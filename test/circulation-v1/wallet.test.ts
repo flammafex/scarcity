@@ -6,12 +6,13 @@ import { ed25519 } from '@noble/curves/ed25519';
 import { sha256 } from '@noble/hashes/sha256';
 import {
   CIRCULATION_CLASS,
-  parseGraphIssuanceDiscoveryV1,
+  parseGraphIssuanceDiscovery,
   type ExchangeAcceptedResponseV2,
   type ExchangeRequestV2,
   type FreebirdV5DescriptorV2,
-  type GraphIssuanceRequestV1,
-  type GraphIssuanceResultV1,
+  type GraphIssuanceRequest,
+  type GraphIssuanceResult,
+  type GraphIssuanceRecoveryContext,
 } from '../../src/circulation-v1/types.js';
 import {
   FREEBIRD_GRAPH_ISSUANCE_CANONICAL_DIGEST_VERIFIER,
@@ -20,8 +21,8 @@ import {
   canonicalExchangeRequestDigestV2,
   canonicalExchangeResultDigestV2,
   canonicalGraphIdV2,
-  canonicalGraphIssuanceRequestDigestV1,
-  canonicalGraphIssuanceResultDigestV1,
+  canonicalGraphIssuanceRequestDigest,
+  canonicalGraphIssuanceResultDigest,
   canonicalKeysetIdV2,
   canonicalTransitionIdV2,
   computeExchangeReceiptDigest,
@@ -34,7 +35,7 @@ import {
 import { validateDiscoverySnapshot } from '../../src/circulation-v1/bootstrap.js';
 import { type FreebirdObservationOutcome, type FreebirdPostOutcome } from '../../src/circulation-v1/freebird-client.js';
 import {
-  CirculationWalletV1,
+  CirculationWallet,
   type WalletFreebirdClient,
   type RecipientTransferOffer,
   type TransferAcceptanceHandoff,
@@ -164,7 +165,7 @@ async function fixture(): Promise<Fixture> {
       retained_receipt_keys: [],
     },
     graph_issuance: {
-      version: 1,
+      version: 2,
       policies: [{
         issuance_policy_id: 'wallet-genesis-policy',
         graph_id: graph.graph_id,
@@ -175,11 +176,16 @@ async function fixture(): Promise<Fixture> {
         quantity: 1,
         admission_state: 'accepting_new',
         authorization_scheme: 'v4_local',
+        authorization_scope_digest_b64: encodeCanonicalBase64Url(new Uint8Array(32).fill(0x22)),
       }],
+      replay_authority: {
+        authority_id: encodeCanonicalBase64Url(new Uint8Array(32).fill(0x31)),
+        v4_scope_digest_tombstones: [encodeCanonicalBase64Url(new Uint8Array(32).fill(0x22))],
+      },
     },
   };
   const exchange = validateDiscoverySnapshot({ exchange: raw.exchange }, { issuerId: ISSUER, circulationState: 'accepting_new' });
-  const graphIssuance = parseGraphIssuanceDiscoveryV1(raw.graph_issuance);
+  const graphIssuance = parseGraphIssuanceDiscovery(raw.graph_issuance);
   const document = { exchange, graph_issuance: graphIssuance };
   return {
     discovery: { origin: 'http://localhost:43123', exchange, graph_issuance: graphIssuance, document },
@@ -192,7 +198,7 @@ async function fixture(): Promise<Fixture> {
 type ExchangeBehavior = 'normal' | 'retryable-once' | 'ambiguous-once';
 
 class FakeFreebird implements WalletFreebirdClient {
-  readonly graphCalls: Array<{ readonly request: GraphIssuanceRequestV1; readonly capability: string }> = [];
+  readonly graphCalls: Array<{ readonly request: GraphIssuanceRequest; readonly capability: string }> = [];
   readonly exchangeCalls: Array<{ readonly request: ExchangeRequestV2; readonly capability: string }> = [];
   readonly witnessCalls = 0;
   readonly hyperTokenCalls = 0;
@@ -217,28 +223,32 @@ class FakeFreebird implements WalletFreebirdClient {
     this.tamperedExchangeResults.add(operationId);
   }
 
-  async processOrRecoverGraphIssuance(request: GraphIssuanceRequestV1, capability: string): Promise<FreebirdPostOutcome<GraphIssuanceResultV1>> {
+  async issueGraphIssuance(request: GraphIssuanceRequest, capability: string): Promise<FreebirdPostOutcome<GraphIssuanceResult>> {
     this.graphCalls.push({ request: structuredClone(request), capability });
     const privateKey = this.graph.privateKeys.get(this.graph.descriptors[0].descriptor_id)!;
     const blindSignature = await RSABSSA.SHA384.PSS.Deterministic().blindSign(privateKey, decodeCanonicalBase64Url(request.blinded_message));
     const resultBase = {
-      version: 1 as const,
+      version: 2 as const,
       public_operation_id: request.public_operation_id,
       issuance_policy_id: request.issuance_policy_id,
       graph_id: request.graph_id,
       keyset_id: request.keyset_id,
       descriptor_id: request.descriptor_id,
       token_key_id: this.graphResultTampered ? '00'.repeat(32) : this.graph.descriptors[0].token_key_id,
-      quantity: 1,
-      request_digest: encodeCanonicalBase64Url(canonicalGraphIssuanceRequestDigestV1(request)),
+      quantity: 1 as const,
+      request_digest: encodeCanonicalBase64Url(canonicalGraphIssuanceRequestDigest(request)),
       blind_signature: encodeCanonicalBase64Url(blindSignature),
     };
-    const result = { ...resultBase, result_digest: encodeCanonicalBase64Url(canonicalGraphIssuanceResultDigestV1(resultBase as any)) };
-    return { kind: 'committed', status: 200, value: result, request_digest: encodeCanonicalBase64Url(canonicalGraphIssuanceRequestDigestV1(request)), observed: false };
+    const result = { ...resultBase, result_digest: encodeCanonicalBase64Url(canonicalGraphIssuanceResultDigest(resultBase as any)) };
+    return { kind: 'committed', status: 200, value: result, request_digest: encodeCanonicalBase64Url(canonicalGraphIssuanceRequestDigest(request)), observed: false };
   }
 
-  async observeGraphIssuanceStatus(request: GraphIssuanceRequestV1, _capability: string): Promise<FreebirdObservationOutcome<GraphIssuanceResultV1>> {
-    return { kind: 'rejected', status: 404, error: { code: 'operation_unknown', status: 404 }, request_digest: encodeCanonicalBase64Url(canonicalGraphIssuanceRequestDigestV1(request)), observed: true };
+  async recoverGraphIssuance(context: GraphIssuanceRecoveryContext): Promise<FreebirdPostOutcome<GraphIssuanceResult>> {
+    return this.issueGraphIssuance(context.request, context.statusCapability);
+  }
+
+  async getGraphIssuanceStatus(context: GraphIssuanceRecoveryContext): Promise<FreebirdObservationOutcome<GraphIssuanceResult>> {
+    return { kind: 'rejected', status: 404, error: { code: 'operation_unknown', status: 404 }, request_digest: context.requestDigest, observed: true };
   }
 
   async processOrRecoverV2(request: ExchangeRequestV2, capability: string): Promise<FreebirdPostOutcome<ExchangeAcceptedResponseV2>> {
@@ -302,9 +312,9 @@ class FailOnceBackend extends MemoryVaultBackend {
   }
 }
 
-async function wallet(fixtureValue: Fixture, freebird: FakeFreebird, seed: number, backend = new MemoryVaultBackend()): Promise<CirculationWalletV1> {
+async function wallet(fixtureValue: Fixture, freebird: FakeFreebird, seed: number, backend = new MemoryVaultBackend()): Promise<CirculationWallet> {
   const vault = await LocalVault.create({ backend, unlockKey: new Uint8Array(32).fill(seed), randomBytes: sequence(seed + 100) });
-  return new CirculationWalletV1({ vault, discovery: fixtureValue.discovery, issuerId: ISSUER, freebird, randomBytes: sequence(seed), nowUnixSeconds: () => NOW });
+  return new CirculationWallet({ vault, discovery: fixtureValue.discovery, issuerId: ISSUER, freebird, randomBytes: sequence(seed), nowUnixSeconds: () => NOW });
 }
 
 function currentArtifact(records: ReadonlyMap<string, VaultRecord>, keysetId: string): string {
@@ -528,11 +538,11 @@ async function testTerminalGenesisRejectionAndPins(): Promise<void> {
 
   const backend = new MemoryVaultBackend();
   const vault = await LocalVault.create({ backend, unlockKey: new Uint8Array(32).fill(1), randomBytes: sequence(244) });
-  assert.throws(() => new CirculationWalletV1({ vault, discovery: fixtureValue.discovery, issuerId: 'wrong-issuer', freebird, randomBytes: sequence(244) }));
-  assert.throws(() => new CirculationWalletV1({ vault, discovery: { ...fixtureValue.discovery, origin: 'http://not-loopback.example' }, issuerId: ISSUER, freebird, randomBytes: sequence(244) }));
+  assert.throws(() => new CirculationWallet({ vault, discovery: fixtureValue.discovery, issuerId: 'wrong-issuer', freebird, randomBytes: sequence(244) }));
+  assert.throws(() => new CirculationWallet({ vault, discovery: { ...fixtureValue.discovery, origin: 'http://not-loopback.example' }, issuerId: ISSUER, freebird, randomBytes: sequence(244) }));
   const badGraph = structuredClone(fixtureValue.discovery) as any;
   badGraph.document.exchange.active_graph.profile_id = 'wrong/profile';
-  assert.throws(() => new CirculationWalletV1({ vault, discovery: badGraph, issuerId: ISSUER, freebird, randomBytes: sequence(244) }));
+  assert.throws(() => new CirculationWallet({ vault, discovery: badGraph, issuerId: ISSUER, freebird, randomBytes: sequence(244) }));
 
   freebird.setGraphResultTampered(false);
   const sender = await wallet(fixtureValue, freebird, 255);
@@ -565,7 +575,7 @@ async function testDiscoverySourceIsLoadedBeforeUse(): Promise<void> {
   const freebird = new FakeFreebird(fixtureValue);
   const alice = await wallet(fixtureValue, freebird, 155);
   let fetched = false;
-  const loaded = await CirculationWalletV1.open({
+  const loaded = await CirculationWallet.open({
     vault: alice.vault,
     freebird,
     issuerId: ISSUER,

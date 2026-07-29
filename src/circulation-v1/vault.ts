@@ -18,8 +18,8 @@ import {
   parseExchangeReceiptV2,
   parseExchangeRequestV2,
   parseExchangeResultV2,
-  parseGraphIssuanceRequestV1,
-  parseGraphIssuanceResultV1,
+  parseGraphIssuanceRequest,
+  parseGraphIssuanceResult,
   parseGraphSlotSelector,
   parseV5BearerArtifactEnvelope,
   type CanonicalBase64Url,
@@ -29,16 +29,16 @@ import {
   type ExchangeReceiptV2,
   type ExchangeRequestV2,
   type ExchangeResultV2,
-  type GraphIssuanceRequestV1,
-  type GraphIssuanceResultV1,
+  type GraphIssuanceRequest,
+  type GraphIssuanceResult,
   type GraphSlotSelectorV2,
 } from './types.js';
 import { decodeV5BearerArtifactBase64 } from './canonical.js';
 
-export const VAULT_RECORD_VERSION = 'scarcity/vault-record/v1' as const;
-export const VAULT_TRANSACTION_VERSION = 'scarcity/vault-transaction/v1' as const;
+export const VAULT_RECORD_VERSION = 'scarcity/vault-record/v2' as const;
+export const VAULT_TRANSACTION_VERSION = 'scarcity/vault-transaction/v2' as const;
 export const VAULT_LOCK_FILE = 'vault.lock' as const;
-const VAULT_METADATA_VERSION = 'scarcity/vault/v1' as const;
+const VAULT_METADATA_VERSION = 'scarcity/vault/v2' as const;
 const AES_KEY_BYTES = 32;
 const GCM_NONCE_BYTES = 12;
 const GCM_TAG_BYTES = 16;
@@ -148,7 +148,7 @@ export type SendState = 'offered' | 'reserved_pending' | 'spend_unknown' | 'spen
 export type GenesisState = 'prepared' | 'submitted_unknown' | 'current' | 'rejected';
 
 export interface ArtifactVaultRecord {
-  readonly version: 1;
+  readonly version: 2;
   readonly record_type: 'artifact';
   readonly state: ArtifactState;
   readonly artifact: CanonicalBase64Url;
@@ -158,7 +158,7 @@ export interface ArtifactVaultRecord {
 }
 
 export interface PreparedReceiveVaultRecord {
-  readonly version: 1;
+  readonly version: 2;
   readonly record_type: 'prepared_receive';
   readonly state: ReceiveState;
   readonly operation_id: CanonicalBase64Url;
@@ -180,7 +180,7 @@ export interface PreparedReceiveVaultRecord {
 }
 
 export interface PreparedSendVaultRecord {
-  readonly version: 1;
+  readonly version: 2;
   readonly record_type: 'prepared_send';
   readonly state: SendState;
   readonly operation_id: CanonicalBase64Url;
@@ -196,17 +196,18 @@ export interface PreparedSendVaultRecord {
 }
 
 export interface GenesisIssuanceVaultRecord {
-  readonly version: 1;
+  readonly version: 2;
   readonly record_type: 'genesis_issuance';
   readonly state: GenesisState;
   readonly operation_id: CanonicalBase64Url;
   readonly status_capability: CanonicalBase64Url | null;
   readonly preparation_snapshot_ref: string;
-  readonly request: GraphIssuanceRequestV1;
+  readonly request: GraphIssuanceRequest;
+  readonly expected_token_key_id: CanonicalSha256Hex;
   readonly output_nonce: CanonicalBase64Url | null;
   readonly message: CanonicalBase64Url | null;
   readonly blinding_state: CanonicalBase64Url | null;
-  readonly result: GraphIssuanceResultV1 | null;
+  readonly result: GraphIssuanceResult | null;
   readonly finalized_artifact: CanonicalBase64Url | null;
   readonly artifact_record_id: CanonicalBase64Url | null;
   readonly rejection_code: string | null;
@@ -588,7 +589,8 @@ export interface GenesisPreparationInput {
   readonly operation_id?: string;
   readonly status_capability?: string;
   readonly preparation_snapshot_ref: string;
-  readonly request: GraphIssuanceRequestV1;
+  readonly request: GraphIssuanceRequest;
+  readonly expected_token_key_id: string;
   readonly output_nonce: Uint8Array;
   readonly message: Uint8Array;
   readonly blinding_state: Uint8Array;
@@ -597,7 +599,7 @@ export interface GenesisPreparationInput {
 export interface GenesisHandoff {
   readonly operation_id: CanonicalBase64Url;
   readonly status_capability: CanonicalBase64Url;
-  readonly request: GraphIssuanceRequestV1;
+  readonly request: GraphIssuanceRequest;
 }
 
 export interface FinalizeReceiveInput {
@@ -608,7 +610,7 @@ export interface FinalizeReceiveInput {
 
 export interface FinalizeGenesisInput {
   readonly artifact: string;
-  readonly result: GraphIssuanceResultV1;
+  readonly result: GraphIssuanceResult;
 }
 
 export interface FinalizeSendInput {
@@ -797,17 +799,18 @@ function validateAcceptedResponse(value: unknown, field: string): ExchangeAccept
   }
 }
 
-function validateGenesisRequest(value: unknown, field: string): GraphIssuanceRequestV1 {
+function validateGenesisRequest(value: unknown, field: string): GraphIssuanceRequest {
+  if (value !== null && typeof value === 'object' && !Array.isArray(value) && (value as Record<string, unknown>).version === 1) throw new VaultValidationError('migration required: V1 graph-issuance requests are unsupported');
   try {
-    return parseGraphIssuanceRequestV1(value);
+    return parseGraphIssuanceRequest(value);
   } catch (error) {
     fail(field, error instanceof Error ? error.message : 'invalid graph issuance request');
   }
 }
 
-function validateGenesisResult(value: unknown, field: string): GraphIssuanceResultV1 {
+function validateGenesisResult(value: unknown, field: string): GraphIssuanceResult {
   try {
-    return parseGraphIssuanceResultV1(value);
+    return parseGraphIssuanceResult(value);
   } catch (error) {
     fail(field, error instanceof Error ? error.message : 'invalid graph issuance result');
   }
@@ -816,7 +819,7 @@ function validateGenesisResult(value: unknown, field: string): GraphIssuanceResu
 function validateArtifactRecord(value: unknown, field: string): ArtifactVaultRecord {
   const item = object(value, field);
   exactKeys(item, ['version', 'record_type', 'state', 'artifact', 'keyset_id', 'descriptor_id', 'reserved_by'], field);
-  if (item.version !== 1 || item.record_type !== 'artifact') fail(field, 'wrong record type or version');
+  if (item.version !== 2 || item.record_type !== 'artifact') fail(field, 'wrong record type or version');
   if (item.state !== 'current' && item.state !== 'reserved' && item.state !== 'spent') fail(`${field}.state`, 'invalid artifact state');
   const artifact = validateArtifact(item.artifact, `${field}.artifact`);
   const keysetId = id(item.keyset_id, `${field}.keyset_id`);
@@ -824,13 +827,13 @@ function validateArtifactRecord(value: unknown, field: string): ArtifactVaultRec
   const reservedBy = item.reserved_by === null ? null : recordId(item.reserved_by, `${field}.reserved_by`);
   if (item.state === 'reserved' && reservedBy === null) fail(`${field}.reserved_by`, 'required for reserved artifact');
   if (item.state !== 'reserved' && reservedBy !== null) fail(`${field}.reserved_by`, 'must be null unless reserved');
-  return { version: 1, record_type: 'artifact', state: item.state, artifact, keyset_id: keysetId, descriptor_id: descriptorId, reserved_by: reservedBy };
+  return { version: 2, record_type: 'artifact', state: item.state, artifact, keyset_id: keysetId, descriptor_id: descriptorId, reserved_by: reservedBy };
 }
 
 function validateReceiveRecord(value: unknown, field: string): PreparedReceiveVaultRecord {
   const item = object(value, field);
   exactKeys(item, ['version', 'record_type', 'state', 'operation_id', 'status_capability', 'preparation_snapshot_ref', 'graph_id', 'transition_id', 'source_keyset_id', 'target_keyset_id', 'expected_output', 'output_nonce', 'message', 'blinding_state', 'finalized_artifact', 'result', 'receipt', 'artifact_record_id', 'rejection_code'], field);
-  if (item.version !== 1 || item.record_type !== 'prepared_receive') fail(field, 'wrong record type or version');
+  if (item.version !== 2 || item.record_type !== 'prepared_receive') fail(field, 'wrong record type or version');
   if (item.state !== 'prepared' && item.state !== 'submitted_unknown' && item.state !== 'current' && item.state !== 'rejected') fail(`${field}.state`, 'invalid receive state');
   const state = item.state as ReceiveState;
   const operation = operationId(item.operation_id, `${field}.operation_id`);
@@ -856,13 +859,13 @@ function validateReceiveRecord(value: unknown, field: string): PreparedReceiveVa
     if (state === 'rejected' && rejection === null) fail(`${field}.rejection_code`, 'required for rejected record');
     if (state !== 'rejected' && rejection !== null) fail(`${field}.rejection_code`, 'must be null before rejection');
   }
-  return { version: 1, record_type: 'prepared_receive', state, operation_id: operation, status_capability: status, preparation_snapshot_ref: snapshot, graph_id: graphId, transition_id: transitionId, source_keyset_id: sourceKeysetId, target_keyset_id: targetKeysetId, expected_output: expectedOutput, output_nonce: nonce, message, blinding_state: blinding, finalized_artifact: artifact, result, receipt, artifact_record_id: artifactRecord, rejection_code: rejection };
+  return { version: 2, record_type: 'prepared_receive', state, operation_id: operation, status_capability: status, preparation_snapshot_ref: snapshot, graph_id: graphId, transition_id: transitionId, source_keyset_id: sourceKeysetId, target_keyset_id: targetKeysetId, expected_output: expectedOutput, output_nonce: nonce, message, blinding_state: blinding, finalized_artifact: artifact, result, receipt, artifact_record_id: artifactRecord, rejection_code: rejection };
 }
 
 function validateSendRecord(value: unknown, field: string): PreparedSendVaultRecord {
   const item = object(value, field);
   exactKeys(item, ['version', 'record_type', 'state', 'operation_id', 'status_capability', 'preparation_snapshot_ref', 'source_record_id', 'source_artifact', 'request', 'result', 'finalized_artifact', 'output_record_id', 'rejection_code'], field);
-  if (item.version !== 1 || item.record_type !== 'prepared_send') fail(field, 'wrong record type or version');
+  if (item.version !== 2 || item.record_type !== 'prepared_send') fail(field, 'wrong record type or version');
   if (item.state !== 'offered' && item.state !== 'reserved_pending' && item.state !== 'spend_unknown' && item.state !== 'spent' && item.state !== 'rejected') fail(`${field}.state`, 'invalid send state');
   const state = item.state as SendState;
   const operation = operationId(item.operation_id, `${field}.operation_id`);
@@ -887,19 +890,20 @@ function validateSendRecord(value: unknown, field: string): PreparedSendVaultRec
     }
     if ((state === 'offered' || state === 'reserved_pending' || state === 'spend_unknown') && status === null) fail(`${field}.status_capability`, 'required for recoverable send');
   }
-  return { version: 1, record_type: 'prepared_send', state, operation_id: operation, status_capability: status, preparation_snapshot_ref: snapshot, source_record_id: sourceRecord, source_artifact: sourceArtifact, request, result, finalized_artifact: finalized, output_record_id: outputRecord, rejection_code: rejection };
+  return { version: 2, record_type: 'prepared_send', state, operation_id: operation, status_capability: status, preparation_snapshot_ref: snapshot, source_record_id: sourceRecord, source_artifact: sourceArtifact, request, result, finalized_artifact: finalized, output_record_id: outputRecord, rejection_code: rejection };
 }
 
 function validateGenesisRecord(value: unknown, field: string): GenesisIssuanceVaultRecord {
   const item = object(value, field);
-  exactKeys(item, ['version', 'record_type', 'state', 'operation_id', 'status_capability', 'preparation_snapshot_ref', 'request', 'output_nonce', 'message', 'blinding_state', 'result', 'finalized_artifact', 'artifact_record_id', 'rejection_code'], field);
-  if (item.version !== 1 || item.record_type !== 'genesis_issuance') fail(field, 'wrong record type or version');
+  exactKeys(item, ['version', 'record_type', 'state', 'operation_id', 'status_capability', 'preparation_snapshot_ref', 'request', 'expected_token_key_id', 'output_nonce', 'message', 'blinding_state', 'result', 'finalized_artifact', 'artifact_record_id', 'rejection_code'], field);
+  if (item.version !== 2 || item.record_type !== 'genesis_issuance') fail(field, 'wrong record type or version');
   if (item.state !== 'prepared' && item.state !== 'submitted_unknown' && item.state !== 'current' && item.state !== 'rejected') fail(`${field}.state`, 'invalid genesis state');
   const state = item.state as GenesisState;
   const operation = operationId(item.operation_id, `${field}.operation_id`);
   const status = item.status_capability === null ? null : capability(item.status_capability, `${field}.status_capability`);
   const snapshot = snapshotRef(item.preparation_snapshot_ref, `${field}.preparation_snapshot_ref`);
   const request = validateGenesisRequest(item.request, `${field}.request`);
+  const expectedTokenKeyId = id(item.expected_token_key_id, `${field}.expected_token_key_id`);
   const nonce = item.output_nonce === null ? null : encodedBytes(item.output_nonce, `${field}.output_nonce`, 32, 32);
   const message = item.message === null ? null : encodedBytes(item.message, `${field}.message`, 48, 48);
   const blinding = item.blinding_state === null ? null : encodedBytes(item.blinding_state, `${field}.blinding_state`, undefined, 16 * 1024);
@@ -914,11 +918,12 @@ function validateGenesisRecord(value: unknown, field: string): GenesisIssuanceVa
     if (state === 'rejected' && rejection === null) fail(`${field}.rejection_code`, 'required for rejected record');
     if (state !== 'rejected' && rejection !== null) fail(`${field}.rejection_code`, 'must be null before rejection');
   }
-  return { version: 1, record_type: 'genesis_issuance', state, operation_id: operation, status_capability: status, preparation_snapshot_ref: snapshot, request, output_nonce: nonce, message, blinding_state: blinding, result, finalized_artifact: artifact, artifact_record_id: artifactRecord, rejection_code: rejection };
+  return { version: 2, record_type: 'genesis_issuance', state, operation_id: operation, status_capability: status, preparation_snapshot_ref: snapshot, request, expected_token_key_id: expectedTokenKeyId, output_nonce: nonce, message, blinding_state: blinding, result, finalized_artifact: artifact, artifact_record_id: artifactRecord, rejection_code: rejection };
 }
 
 function validateRecord(value: unknown, field = 'record'): VaultRecord {
   const item = object(value, field);
+  if (item.record_type === 'genesis_issuance' && item.version === 1) throw new VaultValidationError('migration required: V2 graph-issuance recovery context is required');
   if (item.record_type === 'artifact') return validateArtifactRecord(item, field);
   if (item.record_type === 'prepared_receive') return validateReceiveRecord(item, field);
   if (item.record_type === 'prepared_send') return validateSendRecord(item, field);
@@ -1001,6 +1006,7 @@ function parseStrictJson(textValue: string, field: string): unknown {
 function assertCanonicalEnvelope(value: unknown, field = 'envelope'): VaultEnvelope {
   const item = object(value, field);
   exactKeys(item, ['version', 'wallet_id', 'record_id', 'nonce', 'ciphertext'], field);
+  if (item.version === 'scarcity/vault-record/v1') throw new VaultValidationError('migration required: V2 vault records are required');
   if (item.version !== VAULT_RECORD_VERSION) fail(`${field}.version`, 'unsupported vault format');
   const wallet = encodedBytes(item.wallet_id, `${field}.wallet_id`, WALLET_ID_BYTES, WALLET_ID_BYTES);
   const record = encodedBytes(item.record_id, `${field}.record_id`, RECORD_ID_BYTES, RECORD_ID_BYTES);
@@ -1073,6 +1079,7 @@ export class LocalVault {
     const metadata = parseStrictJson(rawMetadata, 'vault metadata');
     const item = object(metadata, 'vault metadata');
     exactKeys(item, ['version', 'wallet_id'], 'vault metadata');
+    if (item.version === 'scarcity/vault/v1') throw new VaultValidationError('migration required: V2 vault metadata is required');
     if (item.version !== VAULT_METADATA_VERSION) fail('vault metadata.version', 'unsupported vault format');
     const walletId = boundedBytes(item.wallet_id, 'vault metadata.wallet_id', WALLET_ID_BYTES, WALLET_ID_BYTES);
     const vault = new LocalVault(backend, walletId, randomSource);
@@ -1360,7 +1367,7 @@ export class LocalVault {
     const descriptorId = id(input.descriptor_id, 'descriptor_id');
     return this.mutate((working) => {
       const recordIdValue = this.newId(working);
-      working.set(recordIdValue, { version: 1, record_type: 'artifact', state: 'current', artifact, keyset_id: keysetId, descriptor_id: descriptorId, reserved_by: null });
+      working.set(recordIdValue, { version: 2, record_type: 'artifact', state: 'current', artifact, keyset_id: keysetId, descriptor_id: descriptorId, reserved_by: null });
       return { value: recordIdValue };
     });
   }
@@ -1387,7 +1394,7 @@ export class LocalVault {
       this.ensureCapabilityUnique(working, status);
       this.ensureOutputNonceUnique(working, nonce);
       const recordIdValue = this.newId(working);
-      working.set(recordIdValue, { version: 1, record_type: 'prepared_receive', state: 'prepared', operation_id: op, status_capability: status, preparation_snapshot_ref: snapshot, graph_id: graphId, transition_id: transitionId, source_keyset_id: sourceKeysetId, target_keyset_id: targetKeysetId, expected_output: expectedOutput, output_nonce: nonce, message, blinding_state: blindingState, finalized_artifact: null, result: null, receipt: null, artifact_record_id: null, rejection_code: null });
+      working.set(recordIdValue, { version: 2, record_type: 'prepared_receive', state: 'prepared', operation_id: op, status_capability: status, preparation_snapshot_ref: snapshot, graph_id: graphId, transition_id: transitionId, source_keyset_id: sourceKeysetId, target_keyset_id: targetKeysetId, expected_output: expectedOutput, output_nonce: nonce, message, blinding_state: blindingState, finalized_artifact: null, result: null, receipt: null, artifact_record_id: null, rejection_code: null });
       return { value: { record_id: recordIdValue, handoff: { operation_id: op, status_capability: status, graph_id: graphId, transition_id: transitionId, source_keyset_id: sourceKeysetId, target_keyset_id: targetKeysetId, output: clone(expectedOutput) } } };
     });
   }
@@ -1409,7 +1416,7 @@ export class LocalVault {
       this.ensureOperationUnique(working, op);
       this.ensureCapabilityUnique(working, status);
       const recordIdValue = this.newId(working);
-      working.set(recordIdValue, { version: 1, record_type: 'prepared_send', state: 'offered', operation_id: op, status_capability: status, preparation_snapshot_ref: snapshot, source_record_id: sourceRecordId, source_artifact: source.artifact, request, result: null, finalized_artifact: null, output_record_id: null, rejection_code: null });
+      working.set(recordIdValue, { version: 2, record_type: 'prepared_send', state: 'offered', operation_id: op, status_capability: status, preparation_snapshot_ref: snapshot, source_record_id: sourceRecordId, source_artifact: source.artifact, request, result: null, finalized_artifact: null, output_record_id: null, rejection_code: null });
       return { value: { record_id: recordIdValue, handoff: { operation_id: op, status_capability: status, request: clone(request) } } };
     });
   }
@@ -1438,7 +1445,7 @@ export class LocalVault {
       this.ensureCapabilityUnique(working, capabilityValue);
       const recordIdValue = this.newId(working);
       working.set(sourceRecordId, { ...source, state: 'reserved', reserved_by: operation });
-      working.set(recordIdValue, { version: 1, record_type: 'prepared_send', state: 'reserved_pending', operation_id: operation, status_capability: capabilityValue, preparation_snapshot_ref: snapshot, source_record_id: sourceRecordId, source_artifact: source.artifact, request, result: null, finalized_artifact: null, output_record_id: null, rejection_code: null });
+      working.set(recordIdValue, { version: 2, record_type: 'prepared_send', state: 'reserved_pending', operation_id: operation, status_capability: capabilityValue, preparation_snapshot_ref: snapshot, source_record_id: sourceRecordId, source_artifact: source.artifact, request, result: null, finalized_artifact: null, output_record_id: null, rejection_code: null });
       return { value: { record_id: recordIdValue, handoff: { operation_id: operation, status_capability: capabilityValue, request: clone(request) } } };
     });
   }
@@ -1446,6 +1453,7 @@ export class LocalVault {
   async createGenesisIssuance(input: GenesisPreparationInput): Promise<{ readonly record_id: CanonicalBase64Url; readonly handoff: GenesisHandoff }> {
     const snapshot = snapshotRef(input.preparation_snapshot_ref, 'preparation_snapshot_ref');
     const request = validateGenesisRequest(input.request, 'request');
+    const expectedTokenKeyId = id(input.expected_token_key_id, 'expected_token_key_id');
     const nonce = encodeCanonicalBase64Url(suppliedBytes(input.output_nonce, 'output_nonce', 32, 32));
     const message = encodeCanonicalBase64Url(suppliedBytes(input.message, 'message', 48, 48));
     const blindingState = encodeCanonicalBase64Url(suppliedBytes(input.blinding_state, 'blinding_state', undefined, 16 * 1024));
@@ -1457,7 +1465,7 @@ export class LocalVault {
       this.ensureCapabilityUnique(working, status);
       this.ensureOutputNonceUnique(working, nonce);
       const recordIdValue = this.newId(working);
-      working.set(recordIdValue, { version: 1, record_type: 'genesis_issuance', state: 'prepared', operation_id: op, status_capability: status, preparation_snapshot_ref: snapshot, request, output_nonce: nonce, message, blinding_state: blindingState, result: null, finalized_artifact: null, artifact_record_id: null, rejection_code: null });
+      working.set(recordIdValue, { version: 2, record_type: 'genesis_issuance', state: 'prepared', operation_id: op, status_capability: status, preparation_snapshot_ref: snapshot, request, expected_token_key_id: expectedTokenKeyId, output_nonce: nonce, message, blinding_state: blindingState, result: null, finalized_artifact: null, artifact_record_id: null, rejection_code: null });
       return { value: { record_id: recordIdValue, handoff: { operation_id: op, status_capability: status, request: clone(request) } } };
     });
   }
@@ -1552,7 +1560,7 @@ export class LocalVault {
       if (receive.output_nonce === null) throw new VaultStateError('receive output nonce is missing');
       equalBase64(receive.output_nonce, parsedArtifact.nonce, 'artifact.nonce');
       const artifactId = this.newId(working);
-      const artifactRecord: ArtifactVaultRecord = { version: 1, record_type: 'artifact', state: 'current', artifact, keyset_id: receive.target_keyset_id, descriptor_id: receive.expected_output.slot.descriptor_id, reserved_by: null };
+      const artifactRecord: ArtifactVaultRecord = { version: 2, record_type: 'artifact', state: 'current', artifact, keyset_id: receive.target_keyset_id, descriptor_id: receive.expected_output.slot.descriptor_id, reserved_by: null };
       working.set(artifactId, artifactRecord);
       working.set(receiveId, { ...receive, state: 'current', status_capability: null, output_nonce: null, message: null, blinding_state: null, finalized_artifact: artifact, result, receipt, artifact_record_id: artifactId, rejection_code: null });
       return { value: artifactId };
@@ -1582,7 +1590,7 @@ export class LocalVault {
       equalBase64(genesis.output_nonce, parsedArtifact.nonce, 'artifact.nonce');
       equalText(result.token_key_id, parsedArtifact.token_key_id, 'artifact.token_key_id');
       const artifactId = this.newId(working);
-      const artifactRecord: ArtifactVaultRecord = { version: 1, record_type: 'artifact', state: 'current', artifact, keyset_id: genesis.request.keyset_id, descriptor_id: genesis.request.descriptor_id, reserved_by: null };
+      const artifactRecord: ArtifactVaultRecord = { version: 2, record_type: 'artifact', state: 'current', artifact, keyset_id: genesis.request.keyset_id, descriptor_id: genesis.request.descriptor_id, reserved_by: null };
       working.set(artifactId, artifactRecord);
       working.set(genesisId, { ...genesis, state: 'current', status_capability: null, output_nonce: null, message: null, blinding_state: null, result, finalized_artifact: artifact, artifact_record_id: artifactId, rejection_code: null });
       return { value: artifactId };
@@ -1623,7 +1631,7 @@ export class LocalVault {
       if (finalized !== undefined) {
         const outputArtifact = decodeV5BearerArtifactBase64(finalized);
         outputRecordId = this.newId(working);
-        working.set(outputRecordId, { version: 1, record_type: 'artifact', state: 'current', artifact: finalized, keyset_id: send.request.target_keyset_id, descriptor_id: send.request.outputs[0].slot.descriptor_id, reserved_by: null });
+        working.set(outputRecordId, { version: 2, record_type: 'artifact', state: 'current', artifact: finalized, keyset_id: send.request.target_keyset_id, descriptor_id: send.request.outputs[0].slot.descriptor_id, reserved_by: null });
         void outputArtifact;
       }
       working.set(send.source_record_id, { ...source, state: 'spent', reserved_by: null });

@@ -281,7 +281,7 @@ function normalizeAlgorithm(value: unknown, field: string): WitnessSignatureAlgo
 
 function parseNetworkConfig(value: unknown): ValidatedNetworkConfig {
   const root = objectValue(value, 'network config');
-  exactKeys(root, ['id', 'threshold', 'witnesses'], ['version', 'network_id', 'algorithm', 'signature_scheme'], 'network config');
+  exactKeys(root, ['id', 'threshold', 'witnesses'], ['version', 'network_id', 'algorithm', 'signature_scheme', 'federation', 'external_anchors', 'federation_peers'], 'network config');
   const id = boundedAscii(root.id, 'network config.id');
   if (root.network_id !== undefined && root.network_id !== id) invalid('network config.network_id: does not match id');
   const threshold = safeInteger(root.threshold, 'network config.threshold', 1);
@@ -296,7 +296,7 @@ function parseNetworkConfig(value: unknown): ValidatedNetworkConfig {
     exactKeys(
       witness,
       ['id'],
-      ['algorithm', 'public_key', 'public_key_b64', 'pubkey', 'pop', 'proof_of_possession'],
+      ['algorithm', 'public_key', 'public_key_b64', 'pubkey', 'pop', 'proof_of_possession', 'endpoint'],
       `network config.witnesses[${index}]`,
     );
     const witnessId = boundedAscii(witness.id, `network config.witnesses[${index}].id`);
@@ -358,6 +358,21 @@ function parseSignatureSet(value: unknown, field: string): WitnessSignatureSet {
   }
 
   const object = objectValue(value, field);
+  // Native Witness serializes its untagged Ed25519 enum as
+  // `{ signatures: [...] }`; accept that wire shape as the multisig form.
+  if (object.kind === undefined && Array.isArray(object.signatures)) {
+    exactKeys(object, ['signatures'], [], field);
+    if (object.signatures.length === 0) invalid(`${field}.signatures: empty signature set`);
+    const signatures = object.signatures.map((entry, index) => {
+      const signature = objectValue(entry, `${field}.signatures[${index}]`);
+      exactKeys(signature, ['witness_id', 'signature'], [], `${field}.signatures[${index}]`);
+      return {
+        witness_id: boundedAscii(signature.witness_id, `${field}.signatures[${index}].witness_id`),
+        signature: signature.signature as string,
+      };
+    });
+    return { kind: 'multisig', signatures };
+  }
   if (object.kind === 'multisig') {
     exactKeys(object, ['kind', 'signatures'], [], field);
     if (!Array.isArray(object.signatures) || object.signatures.length === 0) invalid(`${field}.signatures: empty signature set`);
@@ -440,14 +455,22 @@ function u64le(value: number, field: string): Uint8Array {
 
 /**
  * Canonical Witness signing bytes.  This is the pinned Witness tuple framing:
- * hash bytes || timestamp LE u64 || network ID UTF-8 bytes || sequence LE u64.
+ * hash bytes || timestamp LE u64 || network ID length LE u32 || network ID
+ * UTF-8 bytes || sequence LE u64.
  */
 export function canonicalWitnessAttestationBytes(tuple: WitnessAttestationTuple): Uint8Array {
   const hash = decodeCanonicalLowerHex(tuple.hash, 32, 'attestation.hash');
   const network = new TextEncoder().encode(boundedAscii(tuple.network_id, 'attestation.network_id'));
+  const networkLength = Uint8Array.of(
+    network.length & 0xff,
+    (network.length >>> 8) & 0xff,
+    (network.length >>> 16) & 0xff,
+    (network.length >>> 24) & 0xff,
+  );
   return Uint8Array.from([
     ...hash,
     ...u64le(tuple.timestamp, 'attestation.timestamp'),
+    ...networkLength,
     ...network,
     ...u64le(tuple.sequence, 'attestation.sequence'),
   ]);

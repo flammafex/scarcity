@@ -11,6 +11,7 @@
 
 import { sha256 } from '@noble/hashes/sha256';
 import { sha384 } from '@noble/hashes/sha512';
+import { hmac } from '@noble/hashes/hmac';
 import { concatBytes } from '@noble/hashes/utils';
 import {
   BoundaryValidationError,
@@ -26,8 +27,8 @@ import {
   type ExchangeRequestV2,
   type ExchangeResultV2,
   type FreebirdV5DescriptorV2,
-  type GraphIssuanceRequestV1,
-  type GraphIssuanceResultV1,
+  type GraphIssuanceRequest,
+  type GraphIssuanceResult,
   type GraphTransitionV2,
   type V4RedemptionTokenEnvelope,
   type V5BearerArtifactEnvelope,
@@ -243,7 +244,8 @@ export function canonicalTransitionIdV2(transition: GraphTransitionV2): Canonica
 }
 
 export function canonicalGraphIdV2(graph: { profile_id: string; keysets: readonly { keyset_id: string }[]; transitions: readonly { transition_id: string }[] }): CanonicalSha256Hex {
-  const output: Uint8Array[] = [ascii(graph.profile_id, 'graph.profile_id')];
+  const output: Uint8Array[] = [];
+  put(output, ascii(graph.profile_id, 'graph.profile_id'));
   for (const keyset of graph.keysets) put(output, ascii(keyset.keyset_id, 'graph.keyset_id'));
   for (const transition of graph.transitions) put(output, ascii(transition.transition_id, 'graph.transition_id'));
   return domainHex('freebird exchange graph v2\0', concatBytes(...output));
@@ -413,10 +415,10 @@ export function canonicalExchangeReceiptPayloadV2(receipt: ExchangeReceiptV2): U
   return concatBytes(...output);
 }
 
-function canonicalGraphIssuanceSelectorPartsV1(
-  value: GraphIssuanceRequestV1 | GraphIssuanceResultV1,
+function canonicalGraphIssuanceSelectorParts(
+  value: GraphIssuanceRequest | GraphIssuanceResult | Omit<GraphIssuanceResult, 'result_digest'>,
 ): Uint8Array[] {
-  const output: Uint8Array[] = [Uint8Array.of(1)];
+  const output: Uint8Array[] = [Uint8Array.of(2)];
   put(output, decodeCanonicalBase64Url(value.public_operation_id, 16, 'graph issuance.public_operation_id'));
   put(output, ascii(value.issuance_policy_id, 'graph issuance.issuance_policy_id'));
   put(output, ascii(value.graph_id, 'graph issuance.graph_id'));
@@ -426,25 +428,25 @@ function canonicalGraphIssuanceSelectorPartsV1(
 }
 
 /** Exact graph-issuance request selector bytes from Freebird common. */
-export function canonicalGraphIssuanceRequestBytesV1(request: GraphIssuanceRequestV1): Uint8Array {
-  const output = canonicalGraphIssuanceSelectorPartsV1(request);
+export function canonicalGraphIssuanceRequestBytes(request: GraphIssuanceRequest): Uint8Array {
+  const output = canonicalGraphIssuanceSelectorParts(request);
   put(output, decodeCanonicalBase64Url(request.blinded_message, undefined, 'graph issuance.blinded_message'));
   put(output, decodeCanonicalBase64Url(request.authorization, undefined, 'graph issuance.authorization'));
   return concatBytes(...output);
 }
 
-export function canonicalGraphIssuanceAuthorizationBindingV1(request: GraphIssuanceRequestV1): Uint8Array {
-  const output = canonicalGraphIssuanceSelectorPartsV1(request);
+export function canonicalGraphIssuanceAuthorizationBinding(request: GraphIssuanceRequest): Uint8Array {
+  const output = canonicalGraphIssuanceSelectorParts(request);
   put(output, decodeCanonicalBase64Url(request.blinded_message, undefined, 'graph issuance.blinded_message'));
-  return domainDigest('freebird graph blind issuance authorization binding v1\0', concatBytes(...output));
+  return domainDigest('freebird graph blind issuance authorization binding v2\0', concatBytes(...output));
 }
 
-export function canonicalGraphIssuanceRequestDigestV1(request: GraphIssuanceRequestV1): Uint8Array {
-  return domainDigest('freebird graph blind issuance request v1\0', canonicalGraphIssuanceRequestBytesV1(request));
+export function canonicalGraphIssuanceRequestDigest(request: GraphIssuanceRequest): Uint8Array {
+  return domainDigest('freebird graph blind issuance request v2\0', canonicalGraphIssuanceRequestBytes(request));
 }
 
-function canonicalGraphIssuanceResultPartsV1(result: GraphIssuanceResultV1): Uint8Array[] {
-  const output = canonicalGraphIssuanceSelectorPartsV1(result);
+function canonicalGraphIssuanceResultParts(result: Omit<GraphIssuanceResult, 'result_digest'> | GraphIssuanceResult): Uint8Array[] {
+  const output = canonicalGraphIssuanceSelectorParts(result);
   put(output, ascii(result.token_key_id, 'graph issuance.token_key_id'));
   output.push(u32be(result.quantity));
   put(output, decodeCanonicalBase64Url(result.request_digest, 32, 'graph issuance.request_digest'));
@@ -452,12 +454,12 @@ function canonicalGraphIssuanceResultPartsV1(result: GraphIssuanceResultV1): Uin
   return output;
 }
 
-export function canonicalGraphIssuanceResultDigestV1(result: GraphIssuanceResultV1): Uint8Array {
-  return domainDigest('freebird graph blind issuance result v1\0', concatBytes(...canonicalGraphIssuanceResultPartsV1(result)));
+export function canonicalGraphIssuanceResultDigest(result: Omit<GraphIssuanceResult, 'result_digest'> | GraphIssuanceResult): Uint8Array {
+  return domainDigest('freebird graph blind issuance result v2\0', concatBytes(...canonicalGraphIssuanceResultParts(result)));
 }
 
-export function canonicalGraphIssuanceResultBytesV1(result: GraphIssuanceResultV1): Uint8Array {
-  const output = canonicalGraphIssuanceResultPartsV1(result);
+export function canonicalGraphIssuanceResultBytes(result: GraphIssuanceResult): Uint8Array {
+  const output = canonicalGraphIssuanceResultParts(result);
   put(output, decodeCanonicalBase64Url(result.result_digest, 32, 'graph issuance.result_digest'));
   return concatBytes(...output);
 }
@@ -501,9 +503,9 @@ export interface FreebirdV2CanonicalDigestVerifier {
 
 export interface GraphIssuanceCanonicalDigestVerifier {
   /** Exact pinned-Freebird graph-issuance request digest. */
-  readonly requestDigest: (request: GraphIssuanceRequestV1) => Uint8Array;
+  readonly requestDigest: (request: GraphIssuanceRequest) => Uint8Array;
   /** Exact pinned-Freebird graph-issuance result digest. */
-  readonly resultDigest: (result: GraphIssuanceResultV1) => Uint8Array;
+  readonly resultDigest: (result: GraphIssuanceResult) => Uint8Array;
 }
 
 /** Native TypeScript consumer for the canonical Freebird V2 contract. */
@@ -515,8 +517,8 @@ export const FREEBIRD_V2_CANONICAL_DIGEST_VERIFIER: FreebirdV2CanonicalDigestVer
 
 /** Native TypeScript consumer for the canonical Freebird graph-issuance contract. */
 export const FREEBIRD_GRAPH_ISSUANCE_CANONICAL_DIGEST_VERIFIER: GraphIssuanceCanonicalDigestVerifier = {
-  requestDigest: canonicalGraphIssuanceRequestDigestV1,
-  resultDigest: canonicalGraphIssuanceResultDigestV1,
+  requestDigest: canonicalGraphIssuanceRequestDigest,
+  resultDigest: canonicalGraphIssuanceResultDigest,
 };
 
 function assertEncodedDigest(actual: unknown, expected: Uint8Array, field: string): void {
@@ -536,7 +538,7 @@ export function verifyExchangeResultDigest(
 
 /** Verify a graph-issuance result digest using the pinned native codec. */
 export function verifyGraphIssuanceResultDigest(
-  result: GraphIssuanceResultV1,
+  result: GraphIssuanceResult,
   verifier: GraphIssuanceCanonicalDigestVerifier,
 ): void {
   assertEncodedDigest(result.result_digest, assertDigestBytes(verifier.resultDigest(result), 'result_digest'), 'graph issuance result.result_digest');
@@ -544,11 +546,112 @@ export function verifyGraphIssuanceResultDigest(
 
 /** Verify the request digest carried by a native graph-issuance result. */
 export function verifyGraphIssuanceRequestDigest(
-  request: GraphIssuanceRequestV1,
-  result: GraphIssuanceResultV1,
+  request: GraphIssuanceRequest,
+  result: GraphIssuanceResult,
   verifier: GraphIssuanceCanonicalDigestVerifier,
 ): void {
   assertEncodedDigest(result.request_digest, assertDigestBytes(verifier.requestDigest(request), 'request_digest'), 'graph issuance result.request_digest');
+}
+
+export const DOMAIN_GRAPH_ISSUANCE_HMAC_AUTHORIZATION_V2 = new TextEncoder().encode('freebird graph issuance hmac authorization v2\0');
+export const DOMAIN_REPLAY_AUTHORITY_PROBE_V1 = new TextEncoder().encode('freebird v4 replay authority probe v1\0');
+
+/** Build Freebird's exact V2 external HMAC authorization transcript. */
+export function graphIssuanceHmacAuthorizationTranscriptV2(
+  nonce: Uint8Array,
+  policyId: string,
+  authorizationBindingDigest: Uint8Array,
+): Uint8Array {
+  if (nonce.length !== 32) invalid('HMAC nonce: expected 32 bytes');
+  if (authorizationBindingDigest.length !== 32) invalid('authorization binding digest: expected 32 bytes');
+  const policy = ascii(policyId, 'issuance_policy_id');
+  return concatBytes(DOMAIN_GRAPH_ISSUANCE_HMAC_AUTHORIZATION_V2, nonce, u32be(policy.length), policy, authorizationBindingDigest);
+}
+
+/** Return the raw Freebird V2 HMAC-SHA256 authorization tag. */
+export function graphIssuanceHmacAuthorizationTagV2(
+  secret: Uint8Array,
+  nonce: Uint8Array,
+  policyId: string,
+  authorizationBindingDigest: Uint8Array,
+): Uint8Array {
+  if (secret.length === 0) invalid('HMAC secret: empty');
+  return hmac(sha256, secret, graphIssuanceHmacAuthorizationTranscriptV2(nonce, policyId, authorizationBindingDigest));
+}
+
+/** Construct canonical nonce_raw || tag_raw authorization bytes. */
+export function buildGraphIssuanceHmacAuthorizationV2(
+  secret: Uint8Array,
+  nonce: Uint8Array,
+  policyId: string,
+  authorizationBindingDigest: Uint8Array,
+): CanonicalBase64Url {
+  return encodeCanonicalBase64Url(concatBytes(nonce, graphIssuanceHmacAuthorizationTagV2(secret, nonce, policyId, authorizationBindingDigest)));
+}
+
+export function parseGraphIssuanceHmacAuthorizationV2(value: unknown): { readonly nonce: Uint8Array; readonly tag: Uint8Array } {
+  const bytes = decodeCanonicalBase64Url(value, 64, 'graph issuance HMAC authorization');
+  return { nonce: bytes.slice(0, 32), tag: bytes.slice(32) };
+}
+
+export function verifyGraphIssuanceHmacAuthorizationV2(
+  secret: Uint8Array,
+  policyId: string,
+  authorizationBindingDigest: Uint8Array,
+  authorization: unknown,
+): Uint8Array {
+  const parsed = parseGraphIssuanceHmacAuthorizationV2(authorization);
+  const expected = graphIssuanceHmacAuthorizationTagV2(secret, parsed.nonce, policyId, authorizationBindingDigest);
+  if (!bytesEqual(parsed.tag, expected)) invalid('graph issuance authorization: invalid HMAC');
+  return parsed.nonce;
+}
+
+export const hmacAuthorizationTranscriptV2 = graphIssuanceHmacAuthorizationTranscriptV2;
+export const hmacAuthorizationTagV2 = graphIssuanceHmacAuthorizationTagV2;
+export const buildHmacAuthorizationV2 = buildGraphIssuanceHmacAuthorizationV2;
+export const parseHmacAuthorizationV2 = parseGraphIssuanceHmacAuthorizationV2;
+export const verifyHmacAuthorizationV2 = verifyGraphIssuanceHmacAuthorizationV2;
+
+function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {
+  if (left.length !== right.length) return false;
+  let difference = 0;
+  for (let index = 0; index < left.length; index += 1) difference |= left[index] ^ right[index];
+  return difference === 0;
+}
+
+/** Build the exact raw replay-authority HMAC transcript used by Freebird. */
+export function replayAuthorityProofTranscriptV1(
+  authorityId: Uint8Array,
+  probeId: Uint8Array,
+  issuerId: string,
+): Uint8Array {
+  if (authorityId.length !== 32 || probeId.length !== 32) invalid('replay authority IDs: expected 32 bytes');
+  const issuer = utf8(issuerId);
+  return concatBytes(DOMAIN_REPLAY_AUTHORITY_PROBE_V1, authorityId, probeId, u32be(issuer.length), issuer);
+}
+
+export function replayAuthorityProofV1(
+  challenge: Uint8Array,
+  authorityId: Uint8Array,
+  probeId: Uint8Array,
+  issuerId: string,
+): Uint8Array {
+  if (challenge.length !== 32) invalid('replay authority challenge: expected 32 bytes');
+  return hmac(sha256, challenge, replayAuthorityProofTranscriptV1(authorityId, probeId, issuerId));
+}
+
+export function buildReplayAuthorityProofV1(
+  challenge: Uint8Array,
+  authorityId: CanonicalBase64Url,
+  probeId: CanonicalBase64Url,
+  issuerId: string,
+): CanonicalBase64Url {
+  return encodeCanonicalBase64Url(replayAuthorityProofV1(
+    challenge,
+    decodeCanonicalBase64Url(authorityId, 32, 'authority_id'),
+    decodeCanonicalBase64Url(probeId, 32, 'probe_id'),
+    issuerId,
+  ));
 }
 
 /** Compute the raw receipt digest after native Freebird receipt validation. */

@@ -170,6 +170,15 @@ function client(server: LocalServer, now = 1_750_000_000): WitnessEvidenceClient
   return new WitnessEvidenceClient({ origin: server.origin, expectedNetworkId: NETWORK_ID, nowUnixSeconds: () => now });
 }
 
+function testNativeAttestationFraming(): void {
+  const value = tuple();
+  const bytes = canonicalWitnessAttestationBytes(value);
+  const network = new TextEncoder().encode(NETWORK_ID);
+  assert.equal(bytes.length, 32 + 8 + 4 + network.length + 8);
+  assert.deepEqual(bytes.slice(40, 44), Uint8Array.of(network.length, 0, 0, 0));
+  assert.deepEqual(bytes.slice(44, 44 + network.length), network);
+}
+
 async function testLifecycleAndDisclosure(): Promise<void> {
   const server = await standardServer();
   try {
@@ -411,6 +420,7 @@ async function testWitnessCannotChangeOwnershipOnFailure(): Promise<void> {
 }
 
 async function main(): Promise<void> {
+  testNativeAttestationFraming();
   await testLifecycleAndDisclosure();
   await testEndpointDefenseAndHashBinding();
   await testNoStoreDefense();

@@ -8,13 +8,16 @@
 
 import { isDeepStrictEqual } from 'node:util';
 import {
-  CirculationWalletV1,
-  type CirculationWalletV1Options,
+  CirculationWallet,
+  type CirculationWalletOptions,
   type RecipientTransferOffer,
   type WalletOperationStatus,
 } from '../../../src/circulation-v1/wallet.js';
 import {
   FreebirdDiscoveryClient,
+  probeReplayAuthority,
+  validateReplayAuthorityProbeContext,
+  type ReplayAuthorityProbeContext,
   type ValidatedFreebirdDiscovery,
 } from '../../../src/circulation-v1/discovery.js';
 import { FreebirdHttpClient } from '../../../src/circulation-v1/freebird-client.js';
@@ -23,11 +26,12 @@ import {
   decodeCanonicalBase64Url,
   decodeCanonicalLowerHex,
   type ExchangeRequestV2,
-  type GraphIssuanceRequestV1,
-  type GraphIssuanceResultV1,
+  type GraphIssuanceRequest,
+  type GraphIssuanceResult,
+  type GraphIssuanceRecoveryContext,
 } from '../../../src/circulation-v1/types.js';
 import {
-  canonicalGraphIssuanceRequestDigestV1,
+  canonicalGraphIssuanceRequestDigest,
   computeExchangeReceiptDigest,
   computeReceiptWitnessHash,
   decodeV4RedemptionTokenBase64,
@@ -62,6 +66,7 @@ interface LiveConfig {
   readonly freebirdOrigin: string;
   readonly witnessOrigin: string;
   readonly issuerId: string;
+  readonly replayAuthorityProbeContext: ReplayAuthorityProbeContext;
   readonly witnessNetworkId: string;
   readonly admission: string;
   readonly walletAId: string;
@@ -121,10 +126,21 @@ function readConfig(): LiveConfig {
   } catch {
     throw new LiveConfigurationError('SCARCITY_LIVE_V4_ADMISSION must be a valid canonical V4 redemption token');
   }
+  let replayAuthorityProbeContext: ReplayAuthorityProbeContext;
+  try {
+    replayAuthorityProbeContext = validateReplayAuthorityProbeContext({
+      authorityId: required('SCARCITY_LIVE_REPLAY_AUTHORITY_ID'),
+      probeId: required('SCARCITY_LIVE_REPLAY_AUTHORITY_PROBE_ID'),
+      challenge: required('SCARCITY_LIVE_REPLAY_AUTHORITY_CHALLENGE'),
+    });
+  } catch {
+    throw new LiveConfigurationError('SCARCITY_LIVE_REPLAY_AUTHORITY_* must be canonical base64url values for the verifier-registered probe context');
+  }
   return {
     freebirdOrigin: required('SCARCITY_LIVE_FREEBIRD_ORIGIN'),
     witnessOrigin: required('SCARCITY_LIVE_WITNESS_ORIGIN'),
     issuerId: required('SCARCITY_LIVE_ISSUER_ID'),
+    replayAuthorityProbeContext,
     witnessNetworkId: required('SCARCITY_LIVE_WITNESS_NETWORK_ID'),
     admission,
     walletAId,
@@ -145,12 +161,12 @@ async function openMemoryWallet(
   discovery: ValidatedFreebirdDiscovery,
   issuerId: string,
   freebird: FreebirdHttpClient,
-): Promise<CirculationWalletV1> {
+): Promise<CirculationWallet> {
   const backend = new MemoryVaultBackend(`scarcity-live-${id}`);
   await backend.writeWalletId(id);
   const vault = await LocalVault.open({ backend, unlockKey: unlockKey.slice() });
-  const options: CirculationWalletV1Options = { vault, discovery, issuerId, freebird };
-  return new CirculationWalletV1(options);
+  const options: CirculationWalletOptions = { vault, discovery, issuerId, freebird };
+  return new CirculationWallet(options);
 }
 
 function fail(message: string): never {
@@ -161,7 +177,7 @@ function committed(status: WalletOperationStatus, step: string): void {
   if (status.kind !== 'committed') fail(`${step} did not produce a committed result`);
 }
 
-async function privateStatusCapability(wallet: CirculationWalletV1, offer: RecipientTransferOffer): Promise<string> {
+async function privateStatusCapability(wallet: CirculationWallet, offer: RecipientTransferOffer): Promise<string> {
   const record = await wallet.vault.getRecord(offer.offer_id);
   if (record === undefined || record.record_type !== 'prepared_receive' || record.status_capability === null) {
     fail('prepared recipient offer has no private status capability');
@@ -188,7 +204,7 @@ function assertIdenticalCommittedValue(original: unknown, replayed: unknown, lab
   }
 }
 
-async function artifactStateFingerprint(wallet: CirculationWalletV1): Promise<string> {
+async function artifactStateFingerprint(wallet: CirculationWallet): Promise<string> {
   const records = await wallet.vault.listRecords();
   return JSON.stringify([...records.entries()]
     .filter((entry) => entry[1].record_type === 'artifact')
@@ -199,7 +215,7 @@ async function artifactStateFingerprint(wallet: CirculationWalletV1): Promise<st
 }
 
 async function completeSend(
-  wallet: CirculationWalletV1,
+  wallet: CirculationWallet,
   offer: RecipientTransferOffer,
   statusCapability: string,
   config: LiveConfig,
@@ -215,7 +231,7 @@ async function completeSend(
 }
 
 async function completeGenesis(
-  wallet: CirculationWalletV1,
+  wallet: CirculationWallet,
   recordId: string,
   config: LiveConfig,
 ): Promise<WalletOperationStatus> {
@@ -284,6 +300,21 @@ async function run(): Promise<void> {
   if (e01 === undefined || e10 === undefined || e01.source_keyset_id !== discovery.exchange.active_graph.keysets[0].keyset_id || e01.target_keyset_id !== discovery.exchange.active_graph.keysets[1].keyset_id || e10.source_keyset_id !== discovery.exchange.active_graph.keysets[1].keyset_id || e10.target_keyset_id !== discovery.exchange.active_graph.keysets[0].keyset_id) {
     fail('configured E01/E10 transitions do not match pinned K0/K1 directions');
   }
+  const graphIssuance = discovery.graph_issuance;
+  if (graphIssuance === undefined || graphIssuance.replay_authority.authority_id !== config.replayAuthorityProbeContext.authorityId) {
+    fail('supplied replay-authority context does not match validated Freebird discovery');
+  }
+  console.log('[live] verifying pre-registered replay-authority probe');
+  try {
+    await probeReplayAuthority({
+      origin: config.freebirdOrigin,
+      issuerId: config.issuerId,
+      authorityId: graphIssuance.replay_authority.authority_id,
+      context: config.replayAuthorityProbeContext,
+    });
+  } catch {
+    fail('replay-authority probe failed or returned an invalid authority/challenge/proof binding');
+  }
 
   const freebird = new FreebirdHttpClient({ origin: config.freebirdOrigin, discovery });
   const witness = new WitnessEvidenceClient({ origin: config.witnessOrigin, expectedNetworkId: config.witnessNetworkId });
@@ -297,7 +328,7 @@ async function run(): Promise<void> {
 
   console.log('[live] wallet A graph issuance into K0');
   const genesis = await walletA.prepareGenesis({ authorization: config.admission });
-  let genesisRequest: GraphIssuanceRequestV1;
+  let genesisRequest: GraphIssuanceRequest;
   let genesisCapability: string;
   {
     const prepared = await walletA.vault.getRecord(genesis.record_id);
@@ -313,7 +344,7 @@ async function run(): Promise<void> {
     }
   }
   await completeGenesis(walletA, genesis.record_id, config);
-  let genesisResult: GraphIssuanceResultV1;
+  let genesisResult: GraphIssuanceResult;
   {
     const committedRecord = await walletA.vault.getRecord(genesis.record_id);
     if (committedRecord?.record_type !== 'genesis_issuance' || committedRecord.result === null) {
@@ -325,8 +356,22 @@ async function run(): Promise<void> {
   if (genesisArtifacts.length !== 1) fail('graph issuance did not create exactly one current K0 artifact');
   const genesisArtifactId = genesisArtifacts[0][0];
   const graphArtifactStateBeforeReplay = await artifactStateFingerprint(walletA);
-  const graphReplay = await freebird.processOrRecoverGraphIssuance(genesisRequest, genesisCapability);
-  if (graphReplay.kind !== 'committed' || graphReplay.observed || graphReplay.request_digest !== encodeCanonicalBase64Url(canonicalGraphIssuanceRequestDigestV1(genesisRequest))) {
+  const graphReplayRecord = await walletA.vault.getRecord(genesis.record_id);
+  if (graphReplayRecord?.record_type !== 'genesis_issuance' || graphReplayRecord.status_capability !== null || graphReplayRecord.result === null) fail('graph issuance recovery context was not durably finalized');
+  const graphRecovery: GraphIssuanceRecoveryContext = {
+    request: genesisRequest,
+    requestDigest: encodeCanonicalBase64Url(canonicalGraphIssuanceRequestDigest(genesisRequest)),
+    publicOperationId: genesisRequest.public_operation_id,
+    issuancePolicyId: genesisRequest.issuance_policy_id,
+    graphId: genesisRequest.graph_id,
+    keysetId: genesisRequest.keyset_id,
+    descriptorId: genesisRequest.descriptor_id,
+    statusCapability: genesisCapability,
+    expectedTokenKeyId: graphReplayRecord.expected_token_key_id,
+    blindingState: 'recovery-context-test-only',
+  };
+  const graphReplay = await freebird.recoverGraphIssuance(graphRecovery);
+  if (graphReplay.kind !== 'committed' || graphReplay.observed || graphReplay.request_digest !== encodeCanonicalBase64Url(canonicalGraphIssuanceRequestDigest(genesisRequest))) {
     fail('repeated graph issuance POST was not the same committed operation');
   }
   assertIdenticalCommittedValue(genesisResult, graphReplay.value, 'repeated graph issuance result');
@@ -409,7 +454,7 @@ async function run(): Promise<void> {
   } catch (error) {
     if (error instanceof LiveAssertionError) throw error;
   }
-  assertSafePublicValue(await walletA.getStatus(send10.record_id), [capability10], 'final wallet status');
+  assertSafePublicValue(await walletB.getStatus(send10.record_id), [capability10], 'final wallet status');
   console.log('[live] completed; no Witness, HyperToken, or public projection path was instantiated');
 }
 

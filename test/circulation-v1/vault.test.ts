@@ -24,8 +24,8 @@ import type {
   ExchangeReceiptV2,
   ExchangeRequestV2,
   ExchangeResultV2,
-  GraphIssuanceRequestV1,
-  GraphIssuanceResultV1,
+  GraphIssuanceRequest,
+  GraphIssuanceResult,
 } from '../../src/circulation-v1/types.js';
 
 // TEST-ONLY deterministic values. Production vault randomness is node:crypto.
@@ -103,11 +103,11 @@ function receiptFor(exchangeResult: ExchangeResultV2): ExchangeReceiptV2 {
   };
 }
 
-function genesisRequest(): GraphIssuanceRequestV1 {
+function genesisRequest(): GraphIssuanceRequest {
   return {
-    version: 1,
+    version: 2,
     public_operation_id: OP_GENESIS,
-    issuance_policy_id: 'bootstrap-v1',
+    issuance_policy_id: 'bootstrap-v2',
     graph_id: ID0,
     keyset_id: ID2,
     descriptor_id: ID1,
@@ -116,9 +116,9 @@ function genesisRequest(): GraphIssuanceRequestV1 {
   };
 }
 
-function genesisResult(requestValue: GraphIssuanceRequestV1): GraphIssuanceResultV1 {
+function genesisResult(requestValue: GraphIssuanceRequest): GraphIssuanceResult {
   return {
-    version: 1,
+    version: 2,
     public_operation_id: requestValue.public_operation_id,
     issuance_policy_id: requestValue.issuance_policy_id,
     graph_id: requestValue.graph_id,
@@ -189,6 +189,7 @@ async function testMemoryStateMachines(): Promise<void> {
   const genesis = await vault.createGenesisIssuance({
     preparation_snapshot_ref: 'TEST-ONLY genesis snapshot',
     request: genesisRequestValue,
+    expected_token_key_id: encodeCanonicalLowerHex(new Uint8Array(32).fill(0x40)),
     output_nonce: new Uint8Array(32).fill(0x58),
     message: new Uint8Array(48).fill(0x59),
     blinding_state: new Uint8Array(256).fill(0x5a),
@@ -201,6 +202,25 @@ async function testMemoryStateMachines(): Promise<void> {
   });
   assert.equal((await vault.getRecord(genesis.record_id))?.state, 'current');
   assert.equal((await vault.getRecord(genesisArtifactId))?.state, 'current');
+}
+
+async function testLegacyFormatsFailClosed(): Promise<void> {
+  const backend = new MemoryVaultBackend('TEST-ONLY migration-boundary');
+  const walletId = encodeCanonicalBase64Url(new Uint8Array(16).fill(0x31));
+  const recordId = encodeCanonicalBase64Url(new Uint8Array(16).fill(0x32));
+  await backend.writeWalletId(walletId);
+  await backend.writeRecordEnvelope(recordId, JSON.stringify({
+    version: 'scarcity/vault-record/v1',
+    wallet_id: walletId,
+    record_id: recordId,
+    nonce: encodeCanonicalBase64Url(new Uint8Array(12).fill(0x33)),
+    ciphertext: encodeCanonicalBase64Url(new Uint8Array(32).fill(0x34)),
+  }));
+  await assert.rejects(
+    LocalVault.open({ backend, unlockKey: TEST_KEY }),
+    (error: unknown) => error instanceof VaultValidationError && error.message.includes('migration required'),
+    'legacy persisted record envelopes must fail closed with migration guidance',
+  );
 }
 
 async function testFilesystemAuthenticationAndPrivacy(): Promise<void> {
@@ -444,6 +464,7 @@ async function holdFilesystemLock(directory: string, crash = false): Promise<voi
 
 async function main(): Promise<void> {
   await testMemoryStateMachines();
+  await testLegacyFormatsFailClosed();
   await testFilesystemAuthenticationAndPrivacy();
   await testCrashSafeAtomicTransaction();
   await testFilesystemLocking();

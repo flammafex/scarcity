@@ -1,6 +1,6 @@
 /**
- * HTTP-only consumer for the pinned Freebird V2 exchange and V1 graph-
- * issuance operations.  It does not invent a recovery endpoint: an exact
+ * HTTP-only consumer for the pinned Freebird V2 exchange and V2 graph-
+ * issuance operations.  Recovery is an exact repeat of the durable request.
  * POST is the only operation that can process or recover work.
  */
 
@@ -8,20 +8,22 @@ import { ed25519 } from '@noble/curves/ed25519';
 import {
   BoundaryValidationError,
   decodeCanonicalBase64Url,
+  decodeCanonicalLowerHex,
   encodeCanonicalBase64Url,
   parseExchangeAcceptedResponseV2,
   parseExchangeRequestV2,
-  parseGraphIssuanceRequestV1,
-  parseGraphIssuanceResultV1,
+  parseGraphIssuanceRequest,
+  parseGraphIssuanceResult,
   type CanonicalBase64Url,
   type ExchangeAcceptedResponseV2,
   type ExchangeRequestV2,
   type ExchangeResultV2,
   type ExchangeReceiptV2,
   type FreebirdV5DescriptorV2,
-  type GraphIssuanceRequestV1,
-  type GraphIssuanceResultV1,
-  type GraphIssuancePolicyV1,
+  type GraphIssuanceRequest,
+  type GraphIssuanceResult,
+  type GraphIssuancePolicy,
+  type GraphIssuanceRecoveryContext,
   type ReceiptVerificationKeyV2,
   RECEIPT_LIFETIME_SECONDS,
 } from './types.js';
@@ -41,8 +43,8 @@ export const GRAPH_ISSUANCE_STATUS_CAPABILITY_HEADER = 'graph-issuance-status-ca
 
 export const V2_EXCHANGE_PATH = '/v2/public/exchange' as const;
 export const V2_EXCHANGE_STATUS_PATH = '/v2/public/exchange/status' as const;
-export const V1_GRAPH_ISSUANCE_PATH = '/v1/public/graph/issue' as const;
-export const V1_GRAPH_ISSUANCE_STATUS_PATH = '/v1/public/graph/issue/status' as const;
+export const GRAPH_ISSUANCE_PATH = '/v1/public/graph/issue' as const;
+export const GRAPH_ISSUANCE_STATUS_PATH = '/v1/public/graph/issue/status' as const;
 
 export type FreebirdErrorCode =
   | 'transport_failure'
@@ -53,7 +55,12 @@ export type FreebirdErrorCode =
   | 'unauthorized'
   | 'http_rejected'
   | 'operation_conflict'
-  | 'ambiguous_post';
+  | 'ambiguous_post'
+  | 'invalid_graph_issuance_request'
+  | 'graph_issuance_unavailable'
+  | 'graph_issuance_request_too_large'
+  | 'unknown_operation'
+  | 'status_unauthorized';
 
 /** Error data contains no URL, request body, response body, or secret. */
 export interface RedactedFreebirdError {
@@ -135,7 +142,7 @@ export interface FreebirdHttpClientOptions {
   readonly signal?: AbortSignal;
   readonly nowUnixSeconds?: () => number;
   readonly discovery?: ValidatedFreebirdDiscovery;
-  readonly graphIssuancePolicy?: GraphIssuancePolicyV1;
+  readonly graphIssuancePolicy?: GraphIssuancePolicy;
   readonly graphIssuanceDescriptor?: FreebirdV5DescriptorV2;
 }
 
@@ -220,7 +227,7 @@ function assertReceiptLifetime(receipt: ExchangeReceiptV2, field = 'exchange rec
   }
 }
 
-function graphSelectorMatches(request: GraphIssuanceRequestV1, result: GraphIssuanceResultV1): void {
+function graphSelectorMatches(request: GraphIssuanceRequest, result: GraphIssuanceResult): void {
   if (
     result.version !== request.version
     || result.public_operation_id !== request.public_operation_id
@@ -275,7 +282,7 @@ function capability(value: string, field: string): string {
   return value;
 }
 
-function graphPolicyFromDiscovery(discovery: ValidatedFreebirdDiscovery, request: GraphIssuanceRequestV1): GraphIssuancePolicyV1 | undefined {
+function graphPolicyFromDiscovery(discovery: ValidatedFreebirdDiscovery, request: GraphIssuanceRequest): GraphIssuancePolicy | undefined {
   const policies = discovery.graph_issuance?.policies;
   const policy = policies?.find((candidate) => candidate.issuance_policy_id === request.issuance_policy_id);
   if (policy === undefined) return undefined;
@@ -303,7 +310,7 @@ function graphPolicyFromDiscovery(discovery: ValidatedFreebirdDiscovery, request
   };
 }
 
-function assertGraphPolicy(policy: GraphIssuancePolicyV1, request: GraphIssuanceRequestV1): void {
+function assertGraphPolicy(policy: GraphIssuancePolicy, request: GraphIssuanceRequest): void {
   if (
     policy.issuance_policy_id !== request.issuance_policy_id
     || policy.graph_id !== request.graph_id
@@ -326,7 +333,7 @@ export class FreebirdHttpClient {
   private readonly signal?: AbortSignal;
   private readonly nowUnixSeconds: () => number;
   private readonly discovery?: ValidatedFreebirdDiscovery;
-  private readonly configuredGraphPolicy?: GraphIssuancePolicyV1;
+  private readonly configuredGraphPolicy?: GraphIssuancePolicy;
   private readonly configuredGraphDescriptor?: FreebirdV5DescriptorV2;
 
   constructor(options: FreebirdHttpClientOptions) {
@@ -420,7 +427,7 @@ export class FreebirdHttpClient {
     );
   }
 
-  private issuanceRequestDigest(request: GraphIssuanceRequestV1): CanonicalBase64Url {
+  private issuanceRequestDigest(request: GraphIssuanceRequest): CanonicalBase64Url {
     return digestText(FREEBIRD_GRAPH_ISSUANCE_CANONICAL_DIGEST_VERIFIER.requestDigest(request));
   }
 
@@ -572,7 +579,7 @@ export class FreebirdHttpClient {
     return this.observeExchangeStatus(value, statusCapability);
   }
 
-  private graphProfile(request: GraphIssuanceRequestV1): { policy?: GraphIssuancePolicyV1; descriptor?: FreebirdV5DescriptorV2 } {
+  private graphProfile(request: GraphIssuanceRequest): { policy?: GraphIssuancePolicy; descriptor?: FreebirdV5DescriptorV2 } {
     const policy = this.configuredGraphPolicy ?? (this.discovery === undefined ? undefined : graphPolicyFromDiscovery(this.discovery, request));
     const descriptor = this.configuredGraphDescriptor ?? (this.discovery === undefined ? undefined : findDescriptor(this.discovery, request.descriptor_id));
     if (this.discovery !== undefined && policy === undefined) invalid('graph issuance request: no pinned issuance policy');
@@ -589,29 +596,22 @@ export class FreebirdHttpClient {
     return { policy, descriptor };
   }
 
-  private verifyGraphResult(request: GraphIssuanceRequestV1, value: unknown): GraphIssuanceResultV1 {
-    const result = parseGraphIssuanceResultV1(value);
+  private verifyGraphResult(request: GraphIssuanceRequest, value: unknown, expectedTokenKeyId: string): GraphIssuanceResult {
+    const result = parseGraphIssuanceResult(value);
     graphSelectorMatches(request, result);
-    const profile = this.graphProfile(request);
-    if (profile.policy !== undefined) {
-      if (profile.policy.keyset_id !== request.keyset_id || profile.policy.descriptor_id !== request.descriptor_id) invalid('graph issuance result: policy binding mismatch');
-    }
-    if (profile.descriptor !== undefined && result.token_key_id !== profile.descriptor.token_key_id) invalid('graph issuance result: token key mismatch');
-    if (result.quantity !== 1) invalid('graph issuance result: quantity mismatch');
+    if (result.token_key_id !== expectedTokenKeyId) invalid('graph issuance result: token key mismatch');
     verifyGraphIssuanceRequestDigest(request, result, FREEBIRD_GRAPH_ISSUANCE_CANONICAL_DIGEST_VERIFIER);
     verifyGraphIssuanceResultDigest(result, FREEBIRD_GRAPH_ISSUANCE_CANONICAL_DIGEST_VERIFIER);
     return result;
   }
 
-  /** Execute the exact V1 graph-issuance POST; this method is also recovery. */
-  async processOrRecoverGraphIssuance(value: unknown, statusCapability: string): Promise<FreebirdPostOutcome<GraphIssuanceResultV1>> {
-    const request = parseGraphIssuanceRequestV1(value);
-    this.graphProfile(request);
-    const digest = this.issuanceRequestDigest(request);
+  private async postGraphIssuance(request: GraphIssuanceRequest, statusCapability: string, expectedTokenKeyId: string): Promise<FreebirdPostOutcome<GraphIssuanceResult>> {
     capability(statusCapability, GRAPH_ISSUANCE_STATUS_CAPABILITY_HEADER);
+    decodeCanonicalLowerHex(expectedTokenKeyId, 32, 'expected_token_key_id');
+    const digest = this.issuanceRequestDigest(request);
     let envelope: ResponseEnvelope;
     try {
-      envelope = await this.request(V1_GRAPH_ISSUANCE_PATH, 'POST', request, GRAPH_ISSUANCE_STATUS_CAPABILITY_HEADER, statusCapability);
+      envelope = await this.request(GRAPH_ISSUANCE_PATH, 'POST', request, GRAPH_ISSUANCE_STATUS_CAPABILITY_HEADER, statusCapability);
     } catch (error) {
       if (error instanceof FreebirdClientError) return this.ambiguous(error.error, digest);
       return this.ambiguous(safeError('ambiguous_post'), digest);
@@ -620,7 +620,7 @@ export class FreebirdHttpClient {
     if (response.status === 200) {
       if (!hasNoStore(response)) return this.ambiguous(safeError('missing_no_store', 200), digest);
       try {
-        const result = this.verifyGraphResult(request, body);
+        const result = this.verifyGraphResult(request, body, expectedTokenKeyId);
         return { kind: 'committed', status: 200, value: result, request_digest: digest, observed: false };
       } catch {
         return this.rejected(safeError('invalid_response', 200), digest, false);
@@ -630,36 +630,58 @@ export class FreebirdHttpClient {
       if (!hasNoStore(response)) return this.ambiguous(safeError('missing_no_store', 202), digest);
       try {
         exactStatusBody(body, ['graph_issuance_retryable'], 'graph issuance POST');
-        const retryAfter = parseRetryAfter(response, false);
-        return { kind: 'retryable', status: 202, ...(retryAfter === undefined ? {} : { retry_after_seconds: retryAfter }), request_digest: digest, observed: false };
+        const retryAfter = parseRetryAfter(response, true);
+        if (retryAfter !== 1) return this.ambiguous(safeError('invalid_response', 202, retryAfter), digest);
+        return { kind: 'retryable', status: 202, retry_after_seconds: retryAfter, request_digest: digest, observed: false };
       } catch {
         return this.ambiguous(safeError('invalid_response', 202), digest);
       }
     }
     if (response.status === 409) return { kind: 'conflict', status: 409, error: safeError('operation_conflict', 409), request_digest: digest, observed: false };
-    if (response.status >= 500) return this.ambiguous(safeError('ambiguous_post', response.status), digest);
+    if (response.status >= 500) return this.ambiguous(safeError(response.status === 503 ? 'graph_issuance_unavailable' : 'ambiguous_post', response.status), digest);
+    if (response.status === 413) return this.rejected(safeError('graph_issuance_request_too_large', 413), digest, false);
+    if (response.status === 400) return this.rejected(safeError('invalid_graph_issuance_request', 400), digest, false);
     return this.rejected(safeError('http_rejected', response.status), digest, false);
   }
 
-  processGraphIssuanceV1(value: unknown, statusCapability: string): Promise<FreebirdPostOutcome<GraphIssuanceResultV1>> {
-    return this.processOrRecoverGraphIssuance(value, statusCapability);
+  /** Start a fresh V2 graph-issuance operation using current accepting discovery. */
+  async issueGraphIssuance(value: unknown, statusCapability: string): Promise<FreebirdPostOutcome<GraphIssuanceResult>> {
+    const request = parseGraphIssuanceRequest(value);
+    const profile = this.graphProfile(request);
+    if (profile.descriptor === undefined) invalid('graph issuance request: expected token key is unavailable');
+    return this.postGraphIssuance(request, statusCapability, profile.descriptor.token_key_id);
   }
 
-  postGraphIssuanceV1(value: unknown, statusCapability: string): Promise<FreebirdPostOutcome<GraphIssuanceResultV1>> {
-    return this.processOrRecoverGraphIssuance(value, statusCapability);
+  /** Validate and retry only the durable V2 recovery context. */
+  async recoverGraphIssuance(context: GraphIssuanceRecoveryContext): Promise<FreebirdPostOutcome<GraphIssuanceResult>> {
+    const recovery = this.validateGraphIssuanceRecoveryContext(context);
+    return this.postGraphIssuance(recovery.request, recovery.statusCapability, recovery.expectedTokenKeyId);
   }
 
-  /** Observe V1 issuance state only; it never completes or recovers an issuance. */
-  async observeGraphIssuanceStatus(value: GraphIssuanceRequestV1 | string, statusCapability: string): Promise<FreebirdObservationOutcome<GraphIssuanceResultV1>> {
-    const request = typeof value === 'string' ? undefined : parseGraphIssuanceRequestV1(value);
-    if (request !== undefined) this.graphProfile(request);
-    const id = operationId(typeof value === 'string' ? value : value.public_operation_id);
-    const digest = request === undefined ? encodeCanonicalBase64Url(new Uint8Array(32)) : this.issuanceRequestDigest(request);
-    capability(statusCapability, GRAPH_ISSUANCE_STATUS_CAPABILITY_HEADER);
-    const path = `${V1_GRAPH_ISSUANCE_STATUS_PATH}?public_operation_id=${encodeURIComponent(id)}`;
+  /** Validate a complete durable context without consulting fresh discovery. */
+  validateGraphIssuanceRecoveryContext(value: unknown): GraphIssuanceRecoveryContext {
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) invalid('graph issuance recovery context: expected object');
+    const context = value as Record<string, unknown>;
+    const keys = ['request', 'requestDigest', 'publicOperationId', 'issuancePolicyId', 'graphId', 'keysetId', 'descriptorId', 'statusCapability', 'expectedTokenKeyId', 'blindingState'];
+    if (Object.keys(context).length !== keys.length || keys.some((key) => !Object.prototype.hasOwnProperty.call(context, key))) invalid('graph issuance recovery context: unknown or missing field');
+    const request = parseGraphIssuanceRequest(context.request);
+    const digest = this.issuanceRequestDigest(request);
+    if (context.requestDigest !== digest || context.publicOperationId !== request.public_operation_id || context.issuancePolicyId !== request.issuance_policy_id || context.graphId !== request.graph_id || context.keysetId !== request.keyset_id || context.descriptorId !== request.descriptor_id) invalid('graph issuance recovery context: request binding mismatch');
+    capability(context.statusCapability as string, GRAPH_ISSUANCE_STATUS_CAPABILITY_HEADER);
+    decodeCanonicalLowerHex(context.expectedTokenKeyId, 32, 'expected_token_key_id');
+    if (context.blindingState === null || context.blindingState === undefined) invalid('graph issuance recovery context: blinding state is missing');
+    return context as unknown as GraphIssuanceRecoveryContext;
+  }
+
+  /** Observe a durable result using only persisted V2 recovery data. */
+  async getGraphIssuanceStatus(context: GraphIssuanceRecoveryContext): Promise<FreebirdObservationOutcome<GraphIssuanceResult>> {
+    const recovery = this.validateGraphIssuanceRecoveryContext(context);
+    const id = recovery.request.public_operation_id;
+    const digest = recovery.requestDigest;
+    const path = `${GRAPH_ISSUANCE_STATUS_PATH}?public_operation_id=${encodeURIComponent(id)}`;
     let envelope: ResponseEnvelope;
     try {
-      envelope = await this.request(path, 'GET', undefined, GRAPH_ISSUANCE_STATUS_CAPABILITY_HEADER, statusCapability);
+      envelope = await this.request(path, 'GET', undefined, GRAPH_ISSUANCE_STATUS_CAPABILITY_HEADER, recovery.statusCapability);
     } catch (error) {
       if (error instanceof FreebirdClientError) return this.rejected(error.error, digest, true);
       return this.rejected(safeError('invalid_response'), digest, true);
@@ -668,7 +690,7 @@ export class FreebirdHttpClient {
     if (response.status === 200) {
       if (!hasNoStore(response)) return this.rejected(safeError('missing_no_store', 200), digest, true);
       try {
-        const result = request === undefined ? this.verifyGraphObservation(id, body) : this.verifyGraphResult(request, body);
+        const result = this.verifyGraphResult(recovery.request, body, recovery.expectedTokenKeyId);
         return { kind: 'committed', status: 200, value: result, request_digest: digest, observed: true };
       } catch {
         return this.rejected(safeError('invalid_response', 200), digest, true);
@@ -683,24 +705,9 @@ export class FreebirdHttpClient {
         return this.rejected(safeError('invalid_response', 202), digest, true);
       }
     }
-    if (response.status === 404) return this.rejected(safeError('operation_unknown', 404), digest, true);
-    if (response.status === 403) return this.rejected(safeError('unauthorized', 403), digest, true);
+    if (response.status === 404) return this.rejected(safeError('unknown_operation', 404), digest, true);
+    if (response.status === 403) return this.rejected(safeError('status_unauthorized', 403), digest, true);
     return this.rejected(safeError('http_rejected', response.status), digest, true);
-  }
-
-  private verifyGraphObservation(id: string, value: unknown): GraphIssuanceResultV1 {
-    const result = parseGraphIssuanceResultV1(value);
-    if (result.public_operation_id !== id) invalid('graph issuance status: operation mismatch');
-    if (result.quantity !== 1) invalid('graph issuance status: quantity mismatch');
-    const descriptor = this.discovery === undefined ? undefined : findDescriptor(this.discovery, result.descriptor_id);
-    if (descriptor === undefined && this.discovery !== undefined) invalid('graph issuance status: unknown descriptor');
-    if (descriptor !== undefined && descriptor.token_key_id !== result.token_key_id) invalid('graph issuance status: token key mismatch');
-    verifyGraphIssuanceResultDigest(result, FREEBIRD_GRAPH_ISSUANCE_CANONICAL_DIGEST_VERIFIER);
-    return result;
-  }
-
-  getGraphIssuanceStatusV1(value: GraphIssuanceRequestV1 | string, statusCapability: string): Promise<FreebirdObservationOutcome<GraphIssuanceResultV1>> {
-    return this.observeGraphIssuanceStatus(value, statusCapability);
   }
 
   private rejected(error: RedactedFreebirdError, digest: CanonicalBase64Url, observed: boolean): FreebirdRejectedOutcome {
