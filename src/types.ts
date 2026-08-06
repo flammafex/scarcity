@@ -206,14 +206,3 @@ export interface GossipNetwork {
   setReceiveHandler(handler: (data: GossipMessage) => Promise<void>): void;
   readonly peers: PeerConnection[];
 }
-
-// Tor/Privacy configuration
-
-export interface TorConfig {
-  /** SOCKS5 proxy host (default: localhost) */
-  readonly proxyHost?: string;
-  /** SOCKS5 proxy port (default: 9050 for Tor) */
-  readonly proxyPort?: number;
-  /** Force all connections through Tor (default: false, only .onion) */
-  readonly forceProxy?: boolean;
-}

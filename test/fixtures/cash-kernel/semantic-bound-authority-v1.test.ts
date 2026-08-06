@@ -1,0 +1,46 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { SemanticKernelError } from '../../../src/cash-kernel/semantic-state.js';
+import { capability, evidence, makeKernel, request } from './semantic-support.js';
+
+type Case = { id: string; expect: { outcome: string; state: string; records: string[]; error: string | null } };
+const fixture = JSON.parse(readFileSync(resolve(process.cwd(), 'test/fixtures/cash-kernel/semantic-bound-authority-v1.json'), 'utf8')) as { cases: Case[]; authority: Record<string, string> };
+const check = (ok: boolean, message: string): void => { if (!ok) throw new Error(message); };
+const cases = new Map(fixture.cases.map((item) => [item.id, item]));
+const capture = (fn: () => unknown): string | null => { try { fn(); return null; } catch (error) { if (error instanceof SemanticKernelError || error instanceof Error) return error.message; throw error; } };
+const rejectCase = (id: string, fn: () => unknown): void => { const actual = capture(fn); check(actual === cases.get(id)?.expect.error, `${id} error mismatch: ${actual}`); };
+const opened = () => { const k = makeKernel(); k.open(request('OPEN', { value: 1000 }), evidence('OPEN')); return k; };
+const claim = (k: ReturnType<typeof makeKernel>, ref = 'CLAIM'): void => { k.dividend(request(ref, { slot: `${ref}-SLOT`, note: `${ref}-NOTE`, amount: 120 }), capability(ref), evidence(ref, `${ref}-POLICY`), evidence(ref, `${ref}-WITNESS`)); };
+
+check(fixture.cases.length === 25, 'bound fixture case count');
+check(fixture.authority.approved_snapshot === '40469c8f433f71013ad2928f6fba9b12c4f07380', 'bound authority snapshot');
+const ran = new Set<string>();
+const run = (id: string, fn: () => void): void => { check(cases.has(id), `missing ${id}`); fn(); ran.add(id); };
+
+run('PRIOR-01', () => { const k = opened(); const r = request('PRIOR-1', { note: 'N', value: 10, status: 'AVAILABLE' }); check(k.restorePrior(r, evidence('PRIOR-1')) === 'new', 'prior new'); check(k.restorePrior(r, evidence('PRIOR-1')) === 'retry', 'prior retry'); });
+run('PRIOR-02', () => rejectCase('PRIOR-02', () => makeKernel().open(request('OPEN-2', { value: 1 }), evidence('OTHER'))));
+run('PRIOR-03', () => { const k = opened(); rejectCase('PRIOR-03', () => k.restorePrior(request('PRIOR-3', { note: 'N', value: 1, status: 'AVAILABLE' }), evidence('OTHER'))); });
+run('CLAIM-03', () => rejectCase('CLAIM-03', () => opened().dividend(request('CLAIM-3', { slot: 'S', note: 'N', amount: 1 }), capability('CLAIM-3'), evidence('OTHER'), evidence('CLAIM-3'))));
+run('CLAIM-04A', () => rejectCase('CLAIM-04A', () => opened().dividend(request('CLAIM-4A', { slot: 'S', note: 'N', amount: 1 }), capability('CLAIM-4A'), evidence('CLAIM-4A'), evidence('OTHER'))));
+run('CLAIM-04B', () => { const k = makeKernel(); k.open(request('OPEN-MAX', { value: Number.MAX_SAFE_INTEGER }), evidence('OPEN-MAX')); rejectCase('CLAIM-04B', () => k.dividend(request('CLAIM-4B', { slot: 'S', note: 'N', amount: 1 }), capability('CLAIM-4B'), evidence('CLAIM-4B'), evidence('CLAIM-4B'))); });
+run('CIVIC-01', () => { const k = opened(); const r = request('CIVIC-1', { purpose: 'CIVIC-P', amount: 1 }); check(k.civic(r, capability('CIVIC-1'), evidence('CIVIC-1'), evidence('CIVIC-1')) === 'new' && k.civic(r, capability('CIVIC-1'), evidence('CIVIC-1'), evidence('CIVIC-1')) === 'retry', 'civic retry'); });
+run('CIVIC-02A', () => rejectCase('CIVIC-02A', () => opened().civic(request('CIVIC-2A', { purpose: 'CIVIC-P', amount: 1 }), capability('CIVIC-2A'), evidence('OTHER'), evidence('CIVIC-2A'))));
+run('CIVIC-02B', () => rejectCase('CIVIC-02B', () => opened().civic(request('CIVIC-2B', { purpose: 'OVER-CAP', amount: 1 }), capability('CIVIC-2B'), evidence('CIVIC-2B'), evidence('CIVIC-2B'))));
+run('CIVIC-02C', () => rejectCase('CIVIC-02C', () => opened().civic(request('CIVIC-2C', { purpose: 'BAD-THRESHOLD', amount: 1 }), capability('CIVIC-2C'), evidence('CIVIC-2C'), evidence('CIVIC-2C'))));
+run('CIVIC-02D', () => rejectCase('CIVIC-02D', () => opened().civic(request('CIVIC-2D', { purpose: 'CIVIC-P', amount: 1 }), capability('CIVIC-2D', 'BAD-CAP'), evidence('CIVIC-2D'), evidence('CIVIC-2D'))));
+run('CIVIC-02E', () => rejectCase('CIVIC-02E', () => opened().civic(request('CIVIC-2E', { purpose: 'CIVIC-P', amount: 1 }), capability('CIVIC-2E'), evidence('CIVIC-2E'), evidence('CIVIC-2E', 'INVALID'))));
+run('CIVIC-02F', () => rejectCase('CIVIC-02F', () => opened().civic(request('CIVIC-2F', { purpose: 'CIVIC-P', amount: 1 }), capability('CIVIC-2F'), evidence('CIVIC-2F'), evidence('OTHER'))));
+run('CIVIC-03', () => { const k = makeKernel(); k.open(request('OPEN-MAX', { value: Number.MAX_SAFE_INTEGER }), evidence('OPEN-MAX')); rejectCase('CIVIC-03', () => k.civic(request('CIVIC-3', { purpose: 'CIVIC-P', amount: 1 }), capability('CIVIC-3'), evidence('CIVIC-3'), evidence('CIVIC-3'))); });
+run('BURN-01', () => { const k = opened(); k.restorePrior(request('BURN-1-N', { note: 'BURN-1', value: 20, status: 'AVAILABLE' }), evidence('BURN-1-N')); k.burn(request('BURN-1', { input: 'BURN-1', amount: 5, successor: 'BURN-1-S' }), evidence('BURN-1')); });
+run('BURN-02', () => { const k = opened(); k.restorePrior(request('BURN-2-N', { note: 'BURN-2', value: 5, status: 'AVAILABLE' }), evidence('BURN-2-N')); const r = request('BURN-2', { input: 'BURN-2', amount: 5 }); check(k.burn(r, evidence('BURN-2')) === 'new' && k.burn(r, evidence('BURN-2')) === 'retry', 'full burn retry'); });
+run('BURN-03A', () => rejectCase('BURN-03A', () => opened().burn(request('BURN-3A', { input: 'N', amount: 1 }), evidence('OTHER'))));
+run('BURN-03B', () => { const k = opened(); k.restorePrior(request('BURN-3B-N', { note: 'N', value: 1, status: 'AVAILABLE' }), evidence('BURN-3B-N')); rejectCase('BURN-03B', () => k.burn(request('BURN-3B', { input: 'N', amount: 2 }), evidence('BURN-3B'))); });
+run('BURN-03C', () => { const k = opened(); k.restorePrior(request('BURN-3C-N', { note: 'N', value: 1, status: 'AVAILABLE' }), evidence('BURN-3C-N')); const r = request('BURN-3C', { input: 'N', amount: 1 }); k.burn(r, evidence('BURN-3C')); const changed = { ...r, amount: 2 }; rejectCase('BURN-03C', () => k.burn(changed, evidence(changed, 'RESULT-BURN-3C'))); });
+run('BURN-03D', () => { const k = opened(); k.restorePrior(request('BURN-3D-A', { note: 'A', value: 2, status: 'AVAILABLE' }), evidence('BURN-3D-A')); k.restorePrior(request('BURN-3D-S', { note: 'S', value: 1, status: 'AVAILABLE' }), evidence('BURN-3D-S')); rejectCase('BURN-03D', () => k.burn(request('BURN-3D', { input: 'A', amount: 1, successor: 'S' }), evidence('BURN-3D'))); });
+run('SPEND-04', () => { const k = opened(); claim(k, 'SPEND-04-CLAIM'); rejectCase('SPEND-04', () => k.spend(request('SPEND-04', { input: 'SPEND-04-CLAIM-NOTE', payload: 'P', gross: 120, burn: 1, output: 119, outputRef: 'O' }), capability('SPEND-04'), evidence('OTHER'))); });
+run('SPEND-05', () => { const k = opened(); claim(k, 'SPEND-05-CLAIM'); const r = request('SPEND-05', { input: 'SPEND-05-CLAIM-NOTE', payload: 'P', gross: 120, burn: 1, output: 119, outputRef: 'O' }); k.spend(r, capability('SPEND-05'), evidence('SPEND-05', 'RESULT-A')); check(k.spend(r, capability('SPEND-05'), evidence('SPEND-05', 'RESULT-A')) === 'retry', 'spend normalized retry'); const changed = { ...r, payload: 'CHANGED' }; rejectCase('SPEND-05', () => k.spend(changed, capability('SPEND-05'), evidence(changed, 'RESULT-A'))); });
+run('RECOVERY-02', () => { const k = opened(); const result = k.recover(request('RECOVERY-02', { status: 'FINALIZED', finality: 'UNRELATED' }), evidence('RECOVERY-02', 'RELATED')); check(!result.authoritative, 'unrelated recovery authority'); });
+run('RECOVERY-03', () => { const k = opened(); const r = request('RECOVERY-03', { status: 'FINALIZED', finality: 'RECOVERY-RESULT' }); k.recover(r, evidence('RECOVERY-03', 'RECOVERY-RESULT')); k.recover(r, evidence('RECOVERY-03', 'RECOVERY-RESULT')); });
+run('RELAY-02', () => { const k = opened(); const a = { ...evidence('ENV-A', 'RESULT-A'), evidenceReference: 'ENV-A', requestReference: 'ENV-A' }; const b = { ...evidence('ENV-B', 'RESULT-A'), evidenceReference: 'ENV-B', requestReference: 'ENV-B' }; k.relay('ENV-A', a); k.relay('ENV-B', b); });
+check(ran.size === 25, `bound cases run: ${ran.size}`);
+console.log('Cash-kernel bound-authority consumer: 25 cases exercised');

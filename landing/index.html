@@ -53,27 +53,19 @@
   <div class="container">
     <!-- HERO -->
     <section class="hero">
-      <pre class="ascii-border">
-╔══════════════════════════════════════════════════════════════════════════════╗
-║                                                                              ║</pre>
       <div class="logo-container">
         <img src="church.png" width=64 alt="The Carpocratian Church presents">
-        <p>The Carpocratian Church of<br>
-    Commonality & Equality<br><br>
-    Presents<br></p>
+        <p><a href="https://carpocratian.org">The Carpocratian Church of<br>
+    Commonality & Equality</a><br><br>
+    Presents</p>
     </div>
       <div class="logo-container">
         <img src="scarcity.webp" alt="Scarcity" class="logo">
       </div>
-
-      <div class="tagline">CASH THAT BLEEDS</div>
-      <div class="subtitle">Private · Bearer · Unlinkable</div>
       <div class="logo-container">
          <img src="scarbucks.webp" alt="Scarbucks.com" class="logo">
       </div>
-      <pre class="ascii-border">
-║                                                                              ║
-╚══════════════════════════════════════════════════════════════════════════════╝</pre>
+      <div class="tagline">CASH THAT DIES</div>
     </section>
 
     <!-- WHAT IS IT -->
@@ -81,9 +73,8 @@
       <div class="section-header">
         <h2>What Is Scarcity?</h2>
       </div>
-
       <div class="content">
-        <p>Chaumian e-cash for the internet. Blind-signed bearer tokens with double-spend prevention &mdash; no blockchains, no mining, no global ledgers.</p>
+        <p>Scarcity is a variation on the Chaumian e-cash protocol designed for the internet. Blind-signed bearer tokens called <a href="#">Scarbucks</a> with double-spend prevention &mdash; no blockchains, no mining, no global ledgers.</p>
         <ul>
           <li><span class="highlight">Blind signatures</span> &mdash; issuer signs without seeing what they sign</li>
           <li><span class="highlight">Bearer tokens</span> &mdash; possession is ownership, no addresses</li>
@@ -92,21 +83,17 @@
           <li><span class="highlight">No fees</span> &mdash; zero-cost transfers</li>
           <li><span class="highlight">Issuer-as-mint</span> &mdash; you choose which mints to trust</li>
         </ul>
-        <p class="dim">The Chaumian model: the protocol guarantees privacy and double-spend detection. The mint establishes policy. Vendors choose which mints they accept &mdash; just as merchants choose which banks' cards they take.</p>
+        <p class="dim">The Chaumian model: the protocol guarantees privacy and double-spend detection. The mint establishes monetary/economic policy. Vendors choose which mints they accept &mdash; just as merchants choose which banks' cards they take.</p>
       </div>
-
-      <pre class="ascii-border">
-╚══════════════════════════════════════════════════════════════════════════════╝</pre>
     </section>
 
     <!-- LAZY DEMURRAGE -->
     <section class="section">
       <div class="section-header">
-        <h2>Lazy Demurrage: Money That Metabolizes</h2>
+        <h2>Lazy Demurrage</h2>
       </div>
-
       <div class="content">
-        <p>Tokens have a <span class="highlight">validity window</span> (~1.5 years). If not transferred before expiry, they die.</p>
+        <p><a href="#">Scarbucks</a>  have a <span class="highlight">validity window</span>  that defaults to ~1.5 years. You can adjust it (go even faster), but if <a href="#">Scarbucks</a> are not transferred before expiry, they die.</p>
 
         <div class="decay-demo">
           <div class="decay-visual">
@@ -117,7 +104,7 @@
           </div>
         </div>
 
-        <p>This isn't a bug. It's the point:</p>
+        <p>Death by intelligent design:</p>
         <ul>
           <li><span class="highlight">Anti-hoarding</span> &mdash; use it or lose it</li>
           <li><span class="highlight">Self-pruning</span> &mdash; lost keys don't haunt the network forever</li>
@@ -125,9 +112,6 @@
         </ul>
         <p class="dim">Based on Silvio Gesell's "Freigeld" and the W&ouml;rgl experiment (1932).</p>
       </div>
-
-      <pre class="ascii-border">
-╚══════════════════════════════════════════════════════════════════════════════╝</pre>
     </section>
 
 <!-- HOW IT WORKS -->
@@ -210,92 +194,6 @@ flowchart TD
           </div>
         </div>
       </div>
-
-      <pre class="ascii-border">
-╚══════════════════════════════════════════════════════════════════════════════╝</pre>
-    </section>
-
-    <!-- THREE PILLARS -->
-    <section class="section">
-      <div class="section-header">
-        <h2>The Three Pillars</h2>
-      </div>
-
-      <div class="pillars">
-        <div class="pillar">
-          <div class="pillar-title">FREEBIRD</div>
-          <div class="pillar-subtitle">The Mint</div>
-          <ul>
-            <li>P-256 VOPRF blind signatures (RFC 9497)</li>
-            <li>DLEQ proof verification</li>
-            <li>Schnorr ownership proofs</li>
-            <li>Issuer controls token policy</li>
-          </ul>
-          <a href="https://github.com/flammafex/freebird" class="pillar-link">github.com/flammafex/freebird</a>
-        </div>
-
-        <div class="pillar">
-          <div class="pillar-title">WITNESS</div>
-          <div class="pillar-subtitle">The Notary</div>
-          <ul>
-            <li>BLS12-381 threshold signatures</li>
-            <li>Canonical ordering without blockchain</li>
-            <li>Ethereum anchoring for auditability</li>
-            <li>Anti-censorship federation design</li>
-          </ul>
-          <a href="https://github.com/flammafex/witness" class="pillar-link">github.com/flammafex/witness</a>
-        </div>
-
-        <div class="pillar">
-          <div class="pillar-title">HYPERTOKEN</div>
-          <div class="pillar-subtitle">The Network</div>
-          <ul>
-            <li>WebSocket relay + WebRTC upgrade</li>
-            <li>Gossip-based nullifier propagation</li>
-            <li>Peer reputation scoring</li>
-            <li>E2E encryption (ECDH + AES-256-GCM)</li>
-          </ul>
-          <a href="https://github.com/flammafex/hypertoken" class="pillar-link">github.com/flammafex/hypertoken</a>
-        </div>
-      </div>
-
-      <pre class="ascii-border">
-╚══════════════════════════════════════════════════════════════════════════════╝</pre>
-    </section>
-
-    <!-- TRUST MODEL -->
-    <section class="section">
-      <div class="section-header">
-        <h2>Trust Model</h2>
-      </div>
-
-      <div class="content">
-        <p>Scarcity follows the <span class="highlight">Chaumian model</span>: the protocol provides cryptographic guarantees. The mint establishes economic policy.</p>
-
-        <div class="feature-grid">
-          <div class="feature">
-            <span class="feature-name">PROTOCOL</span>
-            <span class="feature-desc">Privacy, unlinkability, double-spend detection</span>
-          </div>
-          <div class="feature">
-            <span class="feature-name">MINT</span>
-            <span class="feature-desc">Who can issue, how much, backed by what</span>
-          </div>
-          <div class="feature">
-            <span class="feature-name">WITNESS</span>
-            <span class="feature-desc">Ordering, auditability, tamper-proof history</span>
-          </div>
-          <div class="feature">
-            <span class="feature-name">VENDOR</span>
-            <span class="feature-desc">Chooses which mints to accept</span>
-          </div>
-        </div>
-
-        <p class="dim">The software doesn't enforce supply limits &mdash; the mint does. This is by design: monetary policy belongs to institutions, not protocols. Witness attestations (optionally anchored to Ethereum) make that policy auditable.</p>
-      </div>
-
-      <pre class="ascii-border">
-╚══════════════════════════════════════════════════════════════════════════════╝</pre>
     </section>
 
     <!-- ADVANCED FEATURES -->
@@ -332,15 +230,12 @@ flowchart TD
           </div>
         </div>
       </div>
-
-      <pre class="ascii-border">
-╚══════════════════════════════════════════════════════════════════════════════╝</pre>
     </section>
 
     <!-- RUN YOUR OWN -->
     <section class="section">
       <div class="section-header">
-        <h2>Run Your Own Mint</h2>
+        <h2>Run Your Own Mint.</h2>
       </div>
 
       <div class="content">
@@ -369,9 +264,6 @@ scar token mint alice 100
 scar token list alice
         </pre>
       </div>
-
-      <pre class="ascii-border">
-╚══════════════════════════════════════════════════════════════════════════════╝</pre>
     </section>
 
     <!-- FAQ -->
@@ -403,7 +295,7 @@ scar token list alice
         </div>
         <div class="faq-item">
           <div class="faq-q">Why do tokens expire?</div>
-          <div class="faq-a">Lazy demurrage. Lost keys don't create permanent dead weight. Money circulates, not accumulates. Based on Gesell's Freigeld.</div>
+          <div class="faq-a">Money velocity. Savings and other long-term financial products create permanent dead weight on the economy. <a href="#">Scarbucks</a> circulate, not accumulate. Based on Gesell's Freigeld.</div>
         </div>
         <div class="faq-item">
           <div class="faq-q">Is this production-ready?</div>
@@ -411,25 +303,10 @@ scar token list alice
         </div>
       </div>
 
-      <pre class="ascii-border">
-╚══════════════════════════════════════════════════════════════════════════════╝</pre>
-    </section>
-
     <!-- FOOTER -->
     <footer class="footer">
-      <pre class="ascii-token">
-╔═══════════════════════════════════════════════════════════════════════════════╗
-║  No gas fees. No mining. No blockchain. Private bearer cash.                  ║
-╚═══════════════════════════════════════════════════════════════════════════════╝
-      </pre>
       <div class="footer-links">
-        <a href="https://github.com/flammafex/scarcity">GitHub</a>
-        <span class="separator">·</span>
-        <a href="https://github.com/flammafex/scarcity/blob/main/ECONOMICS.md">Economics</a>
-        <span class="separator">·</span>
-        <a href="https://carpocratian.org">Carpocratian Church</a>
-      </div>
-      <div class="footer-copy">Apache 2.0 License</div>
+        <a href="https://git.carpocratian.org/sibyl/scarcity">Source</a>   
     </footer>
 
   </div>

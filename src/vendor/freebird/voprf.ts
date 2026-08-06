@@ -354,10 +354,6 @@ function verifyDleq(
   const c = bytesToNumber(cBytes);
   const s = bytesToNumber(sBytes);
 
-  const n = p256.CURVE.n;
-  if (c === 0n || c >= n) return false;
-  if (s === 0n || s >= n) return false;
-
   // Recompute commitments
   // t1 = G * s - Y * c
   const sG = P256.multiply(G, s);
@@ -392,23 +388,11 @@ function verifyDleq(
 
 // --- Helpers ---
 
-export function base64UrlToBytes(base64: string): Uint8Array {
+function base64UrlToBytes(base64: string): Uint8Array {
   const normalized = base64.replace(/-/g, '+').replace(/_/g, '/');
   const padded = normalized.padEnd(normalized.length + ((4 - normalized.length % 4) % 4), '=');
   const binString = atob(padded);
   return Uint8Array.from(binString, (m) => m.codePointAt(0)!);
-}
-
-export function bytesToBase64Url(bytes: Uint8Array): string {
-  let binary = '';
-  const len = bytes.byteLength;
-  for (let i = 0; i < len; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
-  return btoa(binary)
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=+$/, '');
 }
 
 function bytesToNumber(bytes: Uint8Array): bigint {

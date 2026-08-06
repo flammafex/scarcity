@@ -11,17 +11,14 @@ import { Crypto } from '../crypto.js';
 import type {
   WitnessClient,
   Attestation,
-  TorConfig,
   SophiaWitnessSignedAttestation,
 } from '../types.js';
-import { bls12_381 } from '@noble/curves/bls12-381';
-import { TorProxy } from '../tor.js';
+import { WitnessVerifier } from '../vendor/witness-sdk/verify/index.js';
 
 export interface WitnessAdapterConfig {
   readonly gatewayUrl?: string; // Single gateway (backward compatibility)
   readonly gatewayUrls?: string[]; // Multiple gateways for quorum
   readonly networkId?: string;
-  readonly tor?: TorConfig;
   readonly powDifficulty?: number; // Proof-of-work difficulty in bits (default: 0 = disabled)
   readonly quorumThreshold?: number; // Minimum agreements required (default: 2 for 2-of-3)
   /**
@@ -32,6 +29,19 @@ export interface WitnessAdapterConfig {
 }
 
 const CONTRACT_VERSION = 'sophia/v1' as const;
+
+/**
+ * Thrown when the Witness gateway reports a definitive job failure
+ * (status === 'failed'). This is a server-side verdict, NOT an
+ * unreachable-gateway condition, so it must never drift into the
+ * insecure fallback path (AGENTS.md constraint #6).
+ */
+class WitnessJobFailedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'WitnessJobFailedError';
+  }
+}
 
 function lowerHex(value: string, name: string): string {
   const normalized = value.toLowerCase();
@@ -173,14 +183,21 @@ function toWireSignedAttestation(canonical: SophiaWitnessSignedAttestation): any
 export class WitnessAdapter implements WitnessClient {
   private readonly gatewayUrls: string[];
   private readonly networkId: string;
-  private readonly tor: TorProxy | null;
   private readonly powDifficulty: number;
   private readonly quorumThreshold: number;
   private readonly allowInsecureFallback: boolean;
   private config: any = null;
+  // Local WASM verifier pinned to the fetched network config (Fix: SDK adoption).
+  // null when the config is unavailable or the WASM module fails to load —
+  // preserves the existing "cannot verify locally → fall through" control flow.
+  private verifier: WitnessVerifier | null = null;
   private readonly fallbackWitnessIds = ['fallback-witness-1', 'fallback-witness-2'];
   private warningKeys = new Set<string>();
   private noGatewayWarningLogged = false;
+  // Bounded polling budget for attestation jobs (Fix 1)
+  private readonly jobPollTimeoutMs = 30_000;
+  private readonly jobPollBaseDelayMs = 500;
+  private readonly jobPollMaxDelayMs = 5_000;
 
   constructor(config: WitnessAdapterConfig) {
     // Support both single gateway (backward compatibility) and multiple gateways
@@ -193,7 +210,6 @@ export class WitnessAdapter implements WitnessClient {
     }
 
     this.networkId = config.networkId ?? 'scarcity-network';
-    this.tor = config.tor ? new TorProxy(config.tor) : null;
     this.powDifficulty = config.powDifficulty ?? 0; // Default: disabled
     const envFallback =
       typeof process !== 'undefined' &&
@@ -205,26 +221,9 @@ export class WitnessAdapter implements WitnessClient {
     this.quorumThreshold = config.quorumThreshold ?? Math.ceil(this.gatewayUrls.length / 2);
 
     console.log(`[Witness] Configured with ${this.gatewayUrls.length} gateway(s), quorum threshold: ${this.quorumThreshold}`);
-
-    // Log if Tor is enabled for .onion addresses
-    for (const url of this.gatewayUrls) {
-      if (TorProxy.isOnionUrl(url)) {
-        if (this.tor) {
-          console.log(`[Witness] Tor enabled for .onion address: ${url}`);
-        } else {
-          console.warn(`[Witness] .onion URL detected but Tor not configured: ${url}`);
-        }
-      }
-    }
   }
 
-  /**
-   * Fetch with Tor support for .onion URLs
-   */
   private async fetch(url: string, options: RequestInit = {}): Promise<Response> {
-    if (this.tor) {
-      return this.tor.fetch(url, options);
-    }
     return fetch(url, options);
   }
 
@@ -267,7 +266,7 @@ export class WitnessAdapter implements WitnessClient {
   }
 
   private parseSignedAttestation(data: any, fallbackHash: string): Attestation {
-    const canonical = normalizeSignedAttestation(data?.attestation ?? data);
+    const canonical = normalizeSignedAttestation(data);
 
     return {
       hash: canonical.attestation.hash ?? fallbackHash,
@@ -277,6 +276,89 @@ export class WitnessAdapter implements WitnessClient {
       canonical,
       raw: canonical,
     };
+  }
+
+  private sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  /**
+   * Effective network id used for local signing/verification.
+   * After init, prefer the server-provided config.id over the
+   * adapter's constructor default (Fix 2).
+   */
+  private get effectiveNetworkId(): string {
+    return this.config?.id || this.networkId;
+  }
+
+  /**
+   * Compute the sleep delay before the next attestation poll.
+   * Uses the server's next_attempt_at hint when present, otherwise
+   * a fixed base delay, both bounded by jobPollMaxDelayMs.
+   */
+  private computePollDelay(job: any): number {
+    if (job?.next_attempt_at) {
+      const next = new Date(job.next_attempt_at).getTime();
+      const delay = next - Date.now();
+      if (Number.isFinite(delay) && delay > 0) {
+        return Math.min(delay, this.jobPollMaxDelayMs);
+      }
+    }
+    return this.jobPollBaseDelayMs;
+  }
+
+  /**
+   * Submit an attestation job to a single gateway and poll it to
+   * completion (Fix 1).
+   *
+   * POST /v1/attestations is idempotent create-or-get. Returns 202 while
+   * pending/retryable and 200 when confirmed/failed. Polling is pinned to
+   * the gateway that accepted the job (jobs are gateway-local).
+   *
+   * Throws WitnessJobFailedError on a definitive server-side failure.
+   * Returns null on network/transient errors (caller may fall back).
+   */
+  private async submitAndPollAttestation(gatewayUrl: string, hash: string): Promise<Attestation | null> {
+    const response = await this.fetch(`${gatewayUrl}/v1/attestations`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      // freebird_token is optional and not currently supplied by callers.
+      body: JSON.stringify({ hash })
+    });
+
+    if (!response.ok) {
+      return null;
+    }
+
+    let job = await response.json();
+    let status: string | undefined = job?.status;
+
+    const deadline = Date.now() + this.jobPollTimeoutMs;
+    while (status === 'pending' || status === 'retryable') {
+      if (Date.now() > deadline) {
+        throw new Error(`[Witness] Timestamp job for ${hash} timed out after ${this.jobPollTimeoutMs}ms`);
+      }
+      await this.sleep(this.computePollDelay(job));
+      const pollResponse = await this.fetch(`${gatewayUrl}/v1/attestations/${hash}`);
+      if (!pollResponse.ok) {
+        // Transient poll failure — keep polling until the deadline.
+        continue;
+      }
+      job = await pollResponse.json();
+      status = job?.status;
+    }
+
+    if (status === 'failed') {
+      throw new WitnessJobFailedError(
+        `[Witness] Timestamp job for ${hash} failed: ${job?.last_error ?? 'unknown error'}`
+      );
+    }
+
+    if (status === 'confirmed' && job?.signed_attestation) {
+      return this.parseSignedAttestation(job.signed_attestation, hash);
+    }
+
+    return null;
   }
 
   /**
@@ -289,7 +371,8 @@ export class WitnessAdapter implements WitnessClient {
     // Try all gateways in parallel
     const configPromises = this.gatewayUrls.map(async (url) => {
       try {
-        const response = await this.fetch(`${url}/v1/config`);
+        // Fix 2: full config (witnesses[].{id,pubkey,endpoint}) moved to /v1/network
+        const response = await this.fetch(`${url}/v1/network`);
         if (response.ok) {
           return await response.json();
         }
@@ -308,8 +391,27 @@ export class WitnessAdapter implements WitnessClient {
 
     if (validConfig) {
       this.config = validConfig;
-      console.log('[Witness] Connected to network:', this.config.network_id || 'unknown');
+      // Pin the signature scheme to BLS if the server did not specify one.
+      // The Rust serde default is `ed25519`; an `Aggregated × ed25519` dispatch
+      // would reject valid BLS attestations (see @witness/sdk verify).
+      if (!this.config.signature_scheme) {
+        this.config.signature_scheme = 'bls';
+      }
+      console.log('[Witness] Connected to network:', this.config.id || 'unknown');
       this.noGatewayWarningLogged = false;
+
+      // Build the local WASM verifier pinned to this network config. On any
+      // failure (config shape, WASM load) leave it null so verification falls
+      // through to the gateway / insecure-fallback paths as before.
+      try {
+        this.verifier = await WitnessVerifier.create(this.config);
+      } catch (error) {
+        this.warningOnce(
+          'init:verifier',
+          `[Witness] Local WASM verifier unavailable (${this.summarizeError(error)})`
+        );
+        this.verifier = null;
+      }
     } else {
       if (!this.noGatewayWarningLogged) {
         console.warn('[Witness] No gateways available, using fallback mode');
@@ -332,39 +434,18 @@ export class WitnessAdapter implements WitnessClient {
   async timestamp(hash: string): Promise<Attestation> {
     await this.init();
 
-    // LAYER 2: PROOF-OF-WORK CHALLENGE
-    // Solve computational puzzle to prevent cheap spam
-    let nonce: number | undefined;
-    if (this.powDifficulty > 0) {
-      const startTime = Date.now();
-      nonce = Crypto.solveProofOfWork(hash, this.powDifficulty);
-      const elapsed = Date.now() - startTime;
-      console.log(`[Witness] PoW solved in ${elapsed}ms (difficulty: ${this.powDifficulty}, nonce: ${nonce})`);
-    }
-
     // Attempt real timestamping if gateway is available
     if (this.config) {
-      // Try all gateways in parallel, use first successful response
-      const requestBody: any = { hash };
-      if (nonce !== undefined) {
-        requestBody.nonce = nonce;
-        requestBody.difficulty = this.powDifficulty;
-      }
-
+      // Try all gateways in parallel, use first successful response.
+      // Each gateway is polled independently (jobs are gateway-local).
       const timestampPromises = this.gatewayUrls.map(async (gatewayUrl) => {
         try {
-          const response = await this.fetch(`${gatewayUrl}/v1/timestamp`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(requestBody)
-          });
-
-          if (response.ok) {
-            const data = await response.json();
-            return this.parseSignedAttestation(data, hash);
-          }
-          return null;
+          return await this.submitAndPollAttestation(gatewayUrl, hash);
         } catch (error) {
+          // A definitive server-side job failure must NOT fall back.
+          if (error instanceof WitnessJobFailedError) {
+            throw error;
+          }
           this.warningOnce(
             `timestamp:${gatewayUrl}`,
             `[Witness] Timestamping failed for gateway ${gatewayUrl} (${this.summarizeError(error)})`
@@ -462,11 +543,20 @@ export class WitnessAdapter implements WitnessClient {
         }
       }
 
-      // All gateways failed - try local BLS verification
-      const blsResult = this.verifyBLSLocal(canonical);
-      if (blsResult !== null) {
-        console.log('[Witness] Verified attestation locally via BLS');
-        return blsResult;
+      // All gateways failed - try local verification via the pinned WASM verifier.
+      // This covers both BLS aggregated and Ed25519 multisig, matching gateway
+      // semantics (threshold, duplicate-signer, unknown-witness enforcement).
+      if (this.verifier) {
+        try {
+          const validSigners = this.verifier.verifyAttestation(witnessAttestation);
+          console.log(`[Witness] Verified attestation locally (${validSigners} valid signers)`);
+          return true;
+        } catch (error) {
+          // A definitive rejection (bad-signature, sub-threshold, unknown-witness,
+          // duplicate-signer) — never falls through to insecure fallback.
+          console.log(`[Witness] Local verification rejected attestation: ${this.summarizeError(error)}`);
+          return false;
+        }
       }
     }
 
@@ -500,7 +590,7 @@ export class WitnessAdapter implements WitnessClient {
       attestation: {
         hash: sha256Hex(attestation.hash, 'attestation.hash'),
         timestamp: timestampSeconds(attestation.timestamp),
-        network_id: this.networkId,
+        network_id: this.effectiveNetworkId,
         sequence: 0,
       },
       signatures: {
@@ -511,206 +601,6 @@ export class WitnessAdapter implements WitnessClient {
         })),
       },
     };
-  }
-
-  /**
-   * Verify BLS aggregated signature locally
-   *
-   * This requires the network config to have witness public keys.
-   * Returns null if verification cannot be performed (missing data),
-   * true if valid, false if invalid.
-   */
-  private verifyBLSLocal(attestation: SophiaWitnessSignedAttestation): boolean | null {
-    try {
-      // Check if this is a BLS aggregated signature
-      const signaturesData = attestation.signatures;
-      if (signaturesData.kind !== 'aggregated') {
-        return null; // Not BLS aggregated format
-      }
-
-      // Check if we have witness public keys in config
-      if (!this.config?.witnesses || !Array.isArray(this.config.witnesses)) {
-        console.warn('[Witness] Cannot verify BLS locally: missing witness public keys');
-        return null;
-      }
-
-      // Extract the aggregated signature
-      const aggregatedSigHex = signaturesData.signature;
-      const signers = signaturesData.signers;
-
-      // Get public keys for all signers
-      const pubkeys: string[] = [];
-      for (const signerId of signers) {
-        const witness = this.config.witnesses.find((w: any) => w.id === signerId);
-        if (!witness || !witness.pubkey) {
-          console.warn(`[Witness] Missing public key for signer: ${signerId}`);
-          return null;
-        }
-        pubkeys.push(witness.pubkey);
-      }
-
-      // Prepare the message (attestation hash)
-      const attestationData = attestation.attestation;
-      const messageBytes = this.serializeAttestationForSigning(attestationData);
-
-      // Verify BLS signature
-      const isValid = this.verifyBLSAggregatedSignature(
-        messageBytes,
-        aggregatedSigHex,
-        pubkeys
-      );
-
-      console.log(`[Witness] Local BLS verification: ${isValid ? 'valid' : 'invalid'}`);
-      return isValid;
-
-    } catch (error) {
-      console.error('[Witness] BLS verification error:', error);
-      return null; // Cannot verify
-    }
-  }
-
-  /**
-   * Serialize attestation for signing (matches Witness Rust implementation)
-   *
-   * The message format must match exactly what the Witness nodes sign.
-   * Based on Witness implementation: hash || timestamp || network_id || sequence
-   */
-  private serializeAttestationForSigning(attestation: any): Uint8Array {
-    // Convert hash (either Uint8Array or hex string) to bytes
-    let hashBytes: Uint8Array;
-    if (typeof attestation.hash === 'string') {
-      // Remove '0x' prefix if present
-      const hex = attestation.hash.startsWith('0x') ? attestation.hash.slice(2) : attestation.hash;
-      hashBytes = Uint8Array.from(Buffer.from(hex, 'hex'));
-    } else if (Array.isArray(attestation.hash)) {
-      hashBytes = new Uint8Array(attestation.hash);
-    } else {
-      hashBytes = attestation.hash;
-    }
-
-    // Convert timestamp to 8-byte little-endian
-    const timestampBytes = new Uint8Array(8);
-    const view = new DataView(timestampBytes.buffer);
-    view.setBigUint64(0, BigInt(attestation.timestamp), true); // little-endian
-
-    // Convert network_id to UTF-8 bytes
-    const networkIdBytes = new TextEncoder().encode(attestation.network_id || '');
-
-    // Convert sequence to 8-byte little-endian
-    const sequenceBytes = new Uint8Array(8);
-    const seqView = new DataView(sequenceBytes.buffer);
-    seqView.setBigUint64(0, BigInt(attestation.sequence || 0), true); // little-endian
-
-    // Concatenate: hash || timestamp || network_id || sequence
-    const messageLen = hashBytes.length + timestampBytes.length + networkIdBytes.length + sequenceBytes.length;
-    const message = new Uint8Array(messageLen);
-    let offset = 0;
-    message.set(hashBytes, offset); offset += hashBytes.length;
-    message.set(timestampBytes, offset); offset += timestampBytes.length;
-    message.set(networkIdBytes, offset); offset += networkIdBytes.length;
-    message.set(sequenceBytes, offset);
-
-    return message;
-  }
-
-  /**
-   * Verify BLS aggregated signature using noble-curves
-   *
-   * @param message - The message that was signed
-   * @param aggregatedSigHex - Hex-encoded aggregated signature (96 bytes)
-   * @param pubkeysHex - Array of hex-encoded public keys (48 bytes each)
-   * @returns true if signature is valid
-   */
-  /**
-   * Verify a BLS Proof-of-Possession for a public key.
-   *
-   * PoP = Sign(SK, H("BLS_POP_" || PK)) — proves the holder knows the
-   * secret key, preventing rogue key attacks during aggregation.
-   */
-  private verifyBLSProofOfPossession(pubkeyBytes: Uint8Array, popHex: string): boolean {
-    try {
-      const pop = Uint8Array.from(Buffer.from(
-        popHex.startsWith('0x') ? popHex.slice(2) : popHex, 'hex'
-      ));
-      // PoP message: H("BLS_POP_" || PK)
-      const popMessage = new Uint8Array([
-        ...new TextEncoder().encode('BLS_POP_'),
-        ...pubkeyBytes
-      ]);
-      return bls12_381.verify(pop, popMessage, pubkeyBytes);
-    } catch {
-      return false;
-    }
-  }
-
-  // Cache of validated PoPs so we only verify once per key
-  private readonly validatedPoPKeys = new Set<string>();
-
-  private verifyBLSAggregatedSignature(
-    message: Uint8Array,
-    aggregatedSigHex: string,
-    pubkeysHex: string[]
-  ): boolean {
-    try {
-      // Parse aggregated signature (G2 point, 96 bytes)
-      const sigHex = aggregatedSigHex.startsWith('0x') ? aggregatedSigHex.slice(2) : aggregatedSigHex;
-      const signature = Uint8Array.from(Buffer.from(sigHex, 'hex'));
-
-      // Parse and aggregate public keys (G1 points, 48 bytes each)
-      const pubkeys = pubkeysHex.map(pkHex => {
-        const hex = pkHex.startsWith('0x') ? pkHex.slice(2) : pkHex;
-        return Uint8Array.from(Buffer.from(hex, 'hex'));
-      });
-
-      // Aggregate public keys with rogue key attack protection
-      let aggregatedPubkey = bls12_381.G1.ProjectivePoint.ZERO;
-      for (let i = 0; i < pubkeys.length; i++) {
-        const pk = pubkeys[i];
-        // fromHex performs subgroup checking (rejects points not on G1)
-        const point = bls12_381.G1.ProjectivePoint.fromHex(pk);
-
-        // Reject the identity point (zero key)
-        if (point.equals(bls12_381.G1.ProjectivePoint.ZERO)) {
-          console.error(`[Witness] BLS key ${i} is the identity point, rejecting`);
-          return false;
-        }
-
-        // Verify Proof-of-Possession if available (prevents rogue key attacks)
-        const pkHex = pubkeysHex[i].startsWith('0x') ? pubkeysHex[i].slice(2) : pubkeysHex[i];
-        if (!this.validatedPoPKeys.has(pkHex)) {
-          const witness = this.config?.witnesses?.find((w: any) => {
-            const wHex = w.pubkey?.startsWith('0x') ? w.pubkey.slice(2) : w.pubkey;
-            return wHex === pkHex;
-          });
-          if (witness?.pop) {
-            if (!this.verifyBLSProofOfPossession(pk, witness.pop)) {
-              console.error(`[Witness] Invalid Proof-of-Possession for key ${pkHex.slice(0, 16)}...`);
-              return false;
-            }
-            this.validatedPoPKeys.add(pkHex);
-          } else {
-            // No PoP available — log warning. In production, this should be required.
-            console.warn(`[Witness] No Proof-of-Possession for BLS key ${pkHex.slice(0, 16)}... — rogue key attack possible`);
-          }
-        }
-
-        aggregatedPubkey = aggregatedPubkey.add(point);
-      }
-
-      // Verify using BLS12-381 pairing (minimal-signature-size variant)
-      // This uses G2 for signatures (96 bytes) and G1 for public keys (48 bytes)
-      const isValid = bls12_381.verify(
-        signature,
-        message,
-        aggregatedPubkey.toRawBytes()
-      );
-
-      return isValid;
-
-    } catch (error) {
-      console.error('[Witness] BLS signature verification failed:', error);
-      return false;
-    }
   }
 
   /**
@@ -736,7 +626,7 @@ export class WitnessAdapter implements WitnessClient {
       // Query all gateways in parallel
       const checkPromises = this.gatewayUrls.map(async (gatewayUrl) => {
         try {
-          const response = await this.fetch(`${gatewayUrl}/v1/timestamp/${hash}`);
+          const response = await this.fetch(`${gatewayUrl}/v1/attestations/${hash}`);
 
           if (response.status === 404) {
             return { seen: false, gateway: gatewayUrl };
@@ -744,13 +634,25 @@ export class WitnessAdapter implements WitnessClient {
 
           if (response.ok) {
             const data = await response.json();
-            // Check if we have valid attestation with threshold signatures
-            const sigCount = this.signatureCount(data.attestation);
-            const threshold = this.config.threshold || 2;
-            return {
-              seen: sigCount >= threshold,
-              gateway: gatewayUrl
-            };
+            const status = data?.status;
+            if (status === 'confirmed') {
+              // Fix 5: count signatures from the signed_attestation, NOT the
+              // unsigned plain attestation (data.attestation).
+              const sigCount = this.signatureCount(data.signed_attestation);
+              const threshold = this.config.threshold || 2;
+              return {
+                seen: sigCount >= threshold,
+                gateway: gatewayUrl
+              };
+            }
+            if (status === 'pending' || status === 'retryable') {
+              // Job exists but not yet confirmed — treat as suspicious (0.5),
+              // NOT "not seen". Avoids a race where two concurrent spends both
+              // pass while the first is still being signed.
+              return { seen: false, suspicious: true, gateway: gatewayUrl };
+            }
+            // failed or unknown status -> not seen
+            return { seen: false, gateway: gatewayUrl };
           }
 
           return null; // Gateway error
@@ -778,7 +680,8 @@ export class WitnessAdapter implements WitnessClient {
 
       // Count votes
       const seenCount = validResults.filter(r => r.seen).length;
-      const notSeenCount = validResults.filter(r => !r.seen).length;
+      const suspiciousCount = validResults.filter(r => r.suspicious).length;
+      const notSeenCount = validResults.filter(r => !r.seen && !r.suspicious).length;
 
       console.log(`[Witness] Nullifier check: ${seenCount}/${validResults.length} gateways report seen (quorum: ${this.quorumThreshold})`);
 
@@ -786,12 +689,12 @@ export class WitnessAdapter implements WitnessClient {
       if (seenCount >= this.quorumThreshold) {
         // Quorum agrees: nullifier has been seen (DOUBLE-SPEND!)
         return 1.0;
-      } else if (notSeenCount >= this.quorumThreshold) {
+      } else if (notSeenCount >= this.quorumThreshold && suspiciousCount === 0) {
         // Quorum agrees: nullifier has NOT been seen (SAFE)
         return 0.0;
       } else {
-        // Split vote or insufficient responses - suspicious!
-        // This could indicate a censorship attack
+        // Split vote, insufficient responses, or a pending job — suspicious!
+        // This could indicate a censorship attack or an in-flight spend.
         console.warn('[Witness] Split vote on nullifier check - possible censorship attack');
         return 0.5;
       }
@@ -816,7 +719,7 @@ export class WitnessAdapter implements WitnessClient {
       // Try all gateways in parallel
       const attestationPromises = this.gatewayUrls.map(async (gatewayUrl) => {
         try {
-          const response = await this.fetch(`${gatewayUrl}/v1/timestamp/${hash}`);
+          const response = await this.fetch(`${gatewayUrl}/v1/attestations/${hash}`);
 
           if (response.status === 404) {
             return null;
@@ -824,7 +727,11 @@ export class WitnessAdapter implements WitnessClient {
 
           if (response.ok) {
             const data = await response.json();
-            return this.parseSignedAttestation(data, hash);
+            // Job wrapper — only a confirmed job carries a signed_attestation.
+            if (data?.status === 'confirmed' && data?.signed_attestation) {
+              return this.parseSignedAttestation(data.signed_attestation, hash);
+            }
+            return null;
           }
           return null;
         } catch (error) {

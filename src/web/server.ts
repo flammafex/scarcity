@@ -82,7 +82,7 @@ export class WebWalletServer {
           success: true,
           data: {
             initialized: this.initialized,
-            version: '0.2.0'
+            version: '0.5.0'
           }
         });
     });

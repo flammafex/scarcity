@@ -21,11 +21,6 @@ export interface ScarcityConfig {
   hypertoken: {
     relayUrl: string;
   };
-  tor: {
-    enabled: boolean;
-    proxyHost: string;
-    proxyPort: number;
-  };
 }
 
 export const DEFAULT_CONFIG: ScarcityConfig = {
@@ -40,11 +35,6 @@ export const DEFAULT_CONFIG: ScarcityConfig = {
   },
   hypertoken: {
     relayUrl: 'ws://localhost:3000'
-  },
-  tor: {
-    enabled: false,
-    proxyHost: 'localhost',
-    proxyPort: 9050
   }
 };
 
@@ -90,8 +80,7 @@ export class ConfigManager {
       ...loadedConfig,
       witness: { ...DEFAULT_CONFIG.witness, ...loadedConfig.witness },
       freebird: { ...DEFAULT_CONFIG.freebird, ...loadedConfig.freebird },
-      hypertoken: { ...DEFAULT_CONFIG.hypertoken, ...loadedConfig.hypertoken },
-      tor: { ...DEFAULT_CONFIG.tor, ...loadedConfig.tor }
+      hypertoken: { ...DEFAULT_CONFIG.hypertoken, ...loadedConfig.hypertoken }
     };
 
     // 3. Apply Environment Variable Overrides (Docker/Cloud support)
@@ -116,21 +105,6 @@ export class ConfigManager {
 
     if (process.env.HYPERTOKEN_RELAY_URL) {
       config.hypertoken.relayUrl = process.env.HYPERTOKEN_RELAY_URL;
-    }
-
-    if (process.env.TOR_ENABLED) {
-      config.tor.enabled = process.env.TOR_ENABLED === 'true';
-    }
-
-    if (process.env.TOR_PROXY) {
-      try {
-        // Parse socks5://host:port
-        const url = new URL(process.env.TOR_PROXY);
-        config.tor.proxyHost = url.hostname;
-        config.tor.proxyPort = parseInt(url.port, 10);
-      } catch (e) {
-        // Ignore invalid proxy URL
-      }
     }
 
     return config;
@@ -214,11 +188,7 @@ export class ConfigManager {
   getFreebirdConfig() {
     return {
       issuerEndpoints: this.config.freebird.issuerEndpoints,
-      verifierUrl: this.config.freebird.verifierUrl,
-      tor: this.config.tor.enabled ? {
-        proxyHost: this.config.tor.proxyHost,
-        proxyPort: this.config.tor.proxyPort
-      } : undefined
+      verifierUrl: this.config.freebird.verifierUrl
     };
   }
 
@@ -229,15 +199,5 @@ export class ConfigManager {
     return {
       relayUrl: this.config.hypertoken.relayUrl
     };
-  }
-
-  /**
-   * Get Tor config
-   */
-  getTorConfig() {
-    return this.config.tor.enabled ? {
-      proxyHost: this.config.tor.proxyHost,
-      proxyPort: this.config.tor.proxyPort
-    } : undefined;
   }
 }

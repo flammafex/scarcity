@@ -68,12 +68,37 @@ export class Emitter {
 
     // Dispatch to type-specific listeners
     if (this._events[type]) {
-      for (const fn of this._events[type]) fn(evt);
+      for (const fn of this._events[type]) this._invoke(fn, evt);
     }
     // Dispatch to wildcard listeners
     if (this._events["*"]) {
-      for (const fn of this._events["*"]) fn(evt);
+      for (const fn of this._events["*"]) this._invoke(fn, evt);
     }
     return true;
+  }
+
+  /**
+   * Invoke a single listener in isolation. A throwing listener must not abort
+   * the remaining listeners nor propagate synchronously out of `emit` — doing
+   * so would corrupt the dispatch outcome (e.g. a component-level emit inside
+   * a `session.change` chain would make the whole action appear to fail even
+   * though the document mutation already committed). Instead the error is
+   * surfaced as an `"error"` event on this emitter (guarded against recursion)
+   * so it is observable without affecting the synchronous caller or crashing
+   * the process.
+   */
+  private _invoke(fn: EventHandler, evt: IEvent): void {
+    try {
+      fn(evt);
+    } catch (err) {
+      // Surface the listener error via the event system rather than re-throwing
+      // it asynchronously (which would crash the process as an uncaught error).
+      // Guard against recursion: if an "error" listener itself throws, swallow it.
+      try {
+        this.emit("error", { payload: { error: err, source: evt.type } });
+      } catch {
+        // ignore — an error listener threw while handling another error
+      }
+    }
   }
 }

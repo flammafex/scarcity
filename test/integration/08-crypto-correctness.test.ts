@@ -22,6 +22,16 @@ import { sha256 } from '@noble/hashes/sha256';
 import { bytesToHex, concatBytes } from '@noble/hashes/utils';
 import { TestRunner } from '../helpers/test-utils.js';
 import { OwnershipProof } from '../../src/ownership.js';
+import { WitnessVerifier } from '../../src/vendor/witness-sdk/verify/index.js';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
+// Local modular-arithmetic helper (the vendored Freebird SDK no longer exports
+// modMul/modSub/modAdd/getCurveOrder).
+function mod(a: bigint, b: bigint): bigint {
+  const result = a % b;
+  return result >= 0n ? result : result + b;
+}
 
 export async function runCryptoCorrectnessTest(): Promise<void> {
   const runner = new TestRunner();
@@ -269,7 +279,7 @@ export async function runCryptoCorrectnessTest(): Promise<void> {
 
     // r should be a valid scalar (non-zero, less than curve order)
     runner.assert(state.r > 0n, 'Blinding scalar r should be positive');
-    runner.assert(state.r < P256.getCurveOrder(), 'Blinding scalar r should be < N');
+    runner.assert(state.r < p256.CURVE.n, 'Blinding scalar r should be < N');
   });
 
   await runner.run('VOPRF hash-to-curve is deterministic', async () => {
@@ -335,28 +345,28 @@ export async function runCryptoCorrectnessTest(): Promise<void> {
   });
 
   await runner.run('Scalar inverse is correct', async () => {
-    const N = P256.getCurveOrder();
+    const N = p256.CURVE.n;
     const r = P256.randomScalar();
     const rInv = P256.invertScalar(r);
 
     // r * r^(-1) should equal 1 mod N
-    const product = P256.modMul(r, rInv);
+    const product = mod(r * rInv, N);
 
     runner.assertEquals(product, 1n, 'r * r^(-1) should equal 1');
   });
 
   await runner.run('Modular arithmetic is correct', async () => {
-    const N = P256.getCurveOrder();
+    const N = p256.CURVE.n;
 
     // Test modMul
-    runner.assertEquals(P256.modMul(3n, 4n), 12n, '3 * 4 = 12');
+    runner.assertEquals(mod(3n * 4n, N), 12n, '3 * 4 = 12');
 
     // Test modSub (with wrap-around)
-    runner.assertEquals(P256.modSub(5n, 3n), 2n, '5 - 3 = 2');
-    runner.assertEquals(P256.modSub(3n, 5n), N - 2n, '3 - 5 = N - 2 (mod N)');
+    runner.assertEquals(mod(5n - 3n, N), 2n, '5 - 3 = 2');
+    runner.assertEquals(mod(3n - 5n, N), N - 2n, '3 - 5 = N - 2 (mod N)');
 
     // Test modAdd
-    runner.assertEquals(P256.modAdd(3n, 4n), 7n, '3 + 4 = 7');
+    runner.assertEquals(mod(3n + 4n, N), 7n, '3 + 4 = 7');
   });
 
   // ============================================================================
@@ -951,6 +961,68 @@ export async function runCryptoCorrectnessTest(): Promise<void> {
       crossResults.every(r => r === false),
       'Cross-verification with wrong bindings should all fail'
     );
+  });
+
+  // ============================================================================
+  // 13. Witness WASM Verifier Golden-Vector Conformance
+  // ============================================================================
+  // Locks the @witness/sdk WASM verifier (used by src/integrations/witness.ts)
+  // to the Rust-pinned golden vectors from the witness repo. This is the only
+  // local check that exercises the real BLS/Ed25519 verification path (the
+  // integration suites run in fallback mode and never hit it).
+
+  await runner.run('Witness WASM verifier accepts valid BLS vectors and rejects invalid', async () => {
+    const bls = JSON.parse(readFileSync(
+      resolve(process.cwd(), 'test/fixtures/witness/bls.json'),
+      'utf8'
+    ));
+
+    // Use the raw WASM verification surface directly (as the Rust golden-vector
+    // runner does), passing each case's public keys verbatim — not the
+    // signer-ID lookup path of WitnessVerifier.verifyAttestation.
+    const { loadWitnessCore } = await import('../../src/vendor/witness-sdk/wasm/loader.js');
+    const core = await loadWitnessCore();
+
+    for (const c of bls.cases) {
+      const att = JSON.stringify(c.attestation);
+      let accepted = false;
+
+      if (c.aggregate_signature) {
+        const pks = JSON.stringify(c.public_keys);
+        const res = core.verifyAggregatedSignatureBls(att, c.aggregate_signature, pks);
+        accepted = 'ok' in res && res.ok === true;
+      } else {
+        const res = core.verifySignatureBls(att, c.signature, c.public_key);
+        accepted = 'ok' in res && res.ok === true;
+      }
+
+      const expected = c.expect === 'accept';
+      runner.assertEquals(
+        accepted,
+        expected,
+        `BLS vector "${c.name}" should ${c.expect}`
+      );
+    }
+  });
+
+  await runner.run('Witness attestation serialization matches golden vectors', async () => {
+    const toBytes = JSON.parse(readFileSync(
+      resolve(process.cwd(), 'test/fixtures/witness/to_bytes.json'),
+      'utf8'
+    ));
+
+    const { loadWitnessCore } = await import('../../src/vendor/witness-sdk/wasm/loader.js');
+    const core = await loadWitnessCore();
+
+    for (const v of toBytes.vectors) {
+      const result = core.attestationToBytes(JSON.stringify(v.attestation));
+      const hex = 'ok' in result ? result.ok : null;
+      runner.assertEquals(
+        hex,
+        v.to_bytes_hex,
+        `to_bytes vector "${v.name}" should match`
+      );
+    }
   });
 
   runner.printSummary();

@@ -1,6 +1,6 @@
 {
   "name": "scarcity",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Chaumian e-cash with blind signatures, nullifier gossip, and lazy demurrage",
   "type": "module",
   "main": "dist/index.js",
@@ -11,7 +11,7 @@
   "scripts": {
     "clean": "rm -rf dist",
     "build": "tsc && npm run copy-static",
-    "copy-static": "mkdir -p dist/src/web && mkdir -p dist/src/explorer && cp -r src/web/public dist/src/web/ 2>/dev/null || true && cp -r src/explorer/public dist/src/explorer/ 2>/dev/null || true",
+    "copy-static": "mkdir -p dist/src/web && mkdir -p dist/src/explorer && mkdir -p dist/src/vendor/witness-sdk/wasm && cp -r src/web/public dist/src/web/ 2>/dev/null || true && cp -r src/explorer/public dist/src/explorer/ 2>/dev/null || true && cp src/vendor/witness-sdk/wasm/witness_core_wasm.wasm dist/src/vendor/witness-sdk/wasm/ 2>/dev/null || true",
     "dev": "tsc --watch",
     "web": "npm run build && node dist/src/web/server.js",
     "web:dev": "tsc && npm run copy-static && node dist/src/web/server.js",
@@ -23,6 +23,7 @@
     "test:double-spend": "npm run build && node dist/test/integration/02-double-spend.test.js",
     "test:degradation": "npm run build && node dist/test/integration/03-graceful-degradation.test.js",
     "test:phase3": "npm run build && node dist/test/integration/04-phase3-features.test.js",
+    "test:cash-kernel": "npm run build && node dist/test/fixtures/cash-kernel/semantic-v1.test.js && node dist/test/fixtures/cash-kernel/semantic-bound-authority-v1.test.js",
     "test:circulation-v1": "npm run build && node dist/test/circulation-v1/foundation.test.js && node dist/test/circulation-v1/freebird-client.test.js && node dist/test/circulation-v1/vault.test.js && node dist/test/circulation-v1/witness-client.test.js && node dist/test/circulation-v1/wallet.test.js",
     "test:circulation-v1:live": "npm run build && node dist/test/circulation-v1/live/run-live.js",
     "test:live": "npm run build && node dist/test/integration/10-live-services.test.js",
@@ -50,7 +51,6 @@
     "express": "^5.2.1",
     "fs-native-extensions": "1.5.0",
     "pako": "^2.1.0",
-    "socks-proxy-agent": "^8.0.5",
     "ws": "^8.18.0"
   },
   "devDependencies": {

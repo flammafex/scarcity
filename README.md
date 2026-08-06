@@ -115,7 +115,7 @@ V4 tokens are self-contained and single-use. They authorize the Scarcity operati
 | **Auth-aware, not economy-aware** | Freebird verifies authorization without learning Scarcity economic state |
 | **No addresses** | Tokens are bearer instruments (possession = ownership) |
 | **Per-token secrets** | Each received token derives a unique secret from the wallet master key |
-| **Network privacy** | Optional Tor integration for .onion services |
+| **Network privacy** | E2E-encrypted peer communication; no Tor/.onion transport (removed in 0.5.0) |
 | **E2E encryption** | All peer communication encrypted (ECDH + AES-256-GCM) |
 
 ## Installation
@@ -332,7 +332,7 @@ Scarcity uses HyperToken for P2P networking with:
 ### Not Protected Against
 
 - **Token theft**: Secure your secrets. Use TLS for transmission.
-- **Network correlation**: Timing analysis by observers. Use Tor.
+- **Network correlation**: Timing analysis by observers. Use a VPN or other transport-level privacy layer (Tor/.onion transport was removed in 0.5.0).
 - **Quantum adversaries**: ECDLP-based cryptography (P-256)
 - **Legal seizure**: Bearer instruments have no account freeze mechanism
 - **Issuer misbehavior**: Freebird authorization policy can be too loose, but it cannot mint Scarcity economic state by itself.
@@ -390,7 +390,7 @@ This is a research prototype. Core protocol, advanced features, and tooling are 
 | Phase | Status |
 |-------|--------|
 | Core Protocol | Complete |
-| Hardening (BLS, WebRTC, VOPRF, Tor) | Complete |
+| Hardening (BLS, WebRTC, VOPRF) | Complete |
 | Advanced Features (split, merge, HTLC, bridge) | Complete |
 | Tooling (web wallet, CLI, explorer) | Complete |
 | Mobile SDK | Planned |

@@ -40,10 +40,10 @@ export function hashToCurve(input: Uint8Array, context: Uint8Array): any {
 export function randomScalar(): bigint {
   // 1. Generate 32 random bytes (standard for P-256)
   const randomBytes = p256.utils.randomPrivateKey();
-
+  
   // 2. Convert to integer
   const num = os2ip(randomBytes);
-
+  
   // 3. Reduce modulo curve order N
   return num % N;
 }
@@ -71,34 +71,6 @@ export function multiply(point: any, scalar: bigint): any {
 export function invertScalar(scalar: bigint): bigint {
   // Calculate inverse using Fermat's Little Theorem: a^(n-2) mod n
   return pow(scalar, N - 2n, N);
-}
-
-/**
- * Modular multiplication: (a * b) mod N
- */
-export function modMul(a: bigint, b: bigint): bigint {
-  return mod(a * b, N);
-}
-
-/**
- * Modular subtraction: (a - b) mod N
- */
-export function modSub(a: bigint, b: bigint): bigint {
-  return mod(a - b, N);
-}
-
-/**
- * Modular addition: (a + b) mod N
- */
-export function modAdd(a: bigint, b: bigint): bigint {
-  return mod(a + b, N);
-}
-
-/**
- * Get the curve order N (used for scalar field operations)
- */
-export function getCurveOrder(): bigint {
-  return N;
 }
 
 // ============================================================================
@@ -148,7 +120,7 @@ function hashToField(msg: Uint8Array, dst: Uint8Array, count: number): bigint[] 
 function expandMessageXMD(msg: Uint8Array, dst: Uint8Array, lenInBytes: number): Uint8Array {
   const b_in_bytes = 32;
   const r_in_bytes = 64;
-
+  
   if (dst.length > 255) throw new Error('DST too long');
   const dstPrime = concatBytes(dst, new Uint8Array([dst.length]));
 
@@ -158,10 +130,10 @@ function expandMessageXMD(msg: Uint8Array, dst: Uint8Array, lenInBytes: number):
   l_i_b_str[1] = lenInBytes & 0xff;
 
   const msgPrime = concatBytes(Z_pad, msg, l_i_b_str, new Uint8Array([0]), dstPrime);
-
+  
   let b_0 = sha256(msgPrime);
   let b_1 = sha256(concatBytes(b_0, new Uint8Array([1]), dstPrime));
-
+  
   const res = new Uint8Array(lenInBytes);
   let offset = 0;
   res.set(b_1.slice(0, Math.min(lenInBytes, b_in_bytes)), 0);
@@ -172,7 +144,7 @@ function expandMessageXMD(msg: Uint8Array, dst: Uint8Array, lenInBytes: number):
   while (offset < lenInBytes) {
     const xorBytes = new Uint8Array(b_0.length);
     for (let j = 0; j < b_0.length; j++) xorBytes[j] = b_0[j] ^ b_i[j];
-
+    
     b_i = sha256(concatBytes(xorBytes, new Uint8Array([i]), dstPrime));
     const len = Math.min(lenInBytes - offset, b_in_bytes);
     res.set(b_i.slice(0, len), offset);
@@ -187,16 +159,16 @@ function expandMessageXMD(msg: Uint8Array, dst: Uint8Array, lenInBytes: number):
 function mapToCurveSSWU(u: bigint): any {
   const Z_u2 = mod(Z * mod(u * u, P), P);
   const Z_u2_sq = mod(Z_u2 * Z_u2, P);
-
+  
   let tv1 = mod(Z_u2_sq + Z_u2, P);
   tv1 = invertField(tv1); // Use our local invertField
-
+  
   let x1 = mod((mod(-B, P) * invertField(A)) * (BigInt(1) + tv1), P);
   if (x1 < BigInt(0)) x1 += P;
 
   const gx1 = mod(mod(x1 * x1, P) * x1 + A * x1 + B, P);
   let y1 = sqrt(gx1);
-
+  
   if (y1 !== null) {
     if ((y1 % BigInt(2)) !== (u % BigInt(2))) y1 = mod(-y1, P);
     return new p256.ProjectivePoint(x1, y1, BigInt(1));
@@ -205,9 +177,9 @@ function mapToCurveSSWU(u: bigint): any {
   const x2 = mod(Z_u2 * x1, P);
   const gx2 = mod(mod(x2 * x2, P) * x2 + A * x2 + B, P);
   let y2 = sqrt(gx2);
-
+  
   if (y2 === null) throw new Error('SSWU failed to find point');
-
+  
   if ((y2 % BigInt(2)) !== (u % BigInt(2))) y2 = mod(-y2, P);
   return new p256.ProjectivePoint(x2, y2, BigInt(1));
 }

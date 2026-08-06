@@ -33,21 +33,3 @@ export function generateId(): string {
     ? crypto.randomUUID()
     : `${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
 }
-
-/**
- * Generate a shorter random ID suitable for peer identifiers
- *
- * @returns A short random string (7 characters)
- */
-export function generatePeerId(): string {
-  return `peer-${Math.random().toString(36).substring(2, 9)}`;
-}
-
-/**
- * Generate a random seed for deterministic operations
- *
- * @returns A random integer suitable for use as a PRNG seed
- */
-export function generateSeed(): number {
-  return Math.floor(Math.random() * 0xFFFFFFFF);
-}

@@ -8,8 +8,7 @@ import {
   FreebirdAdapter,
   WitnessAdapter,
   HyperTokenAdapter,
-  NullifierGossip,
-  configureTor
+  NullifierGossip
 } from '../index.js';
 import { ConfigManager } from './config.js';
 
@@ -34,12 +33,6 @@ export class InfrastructureManager {
   async initialize(): Promise<Infrastructure> {
     if (this.infrastructure) {
       return this.infrastructure;
-    }
-
-    // Configure Tor if enabled
-    const torConfig = this.config.getTorConfig();
-    if (torConfig) {
-      configureTor(torConfig);
     }
 
     // Initialize Freebird

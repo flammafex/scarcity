@@ -56,12 +56,13 @@ export async function runLiveServicesTest(): Promise<void> {
   });
 
   await runner.run('Witness Gateway reachable', async () => {
-    const res = await fetch(`${TestConfig.witness.gateway}/v1/config`, {
+    // Full config (with witnesses[].{id,pubkey,endpoint}) lives at /v1/network
+    const res = await fetch(`${TestConfig.witness.gateway}/v1/network`, {
       signal: AbortSignal.timeout(5000)
     });
     runner.assert(res.ok, `Witness gateway returned HTTP ${res.status}`);
     const config = await res.json();
-    console.log(`  Network: ${config.network_id ?? config.id ?? 'unknown'}`);
+    console.log(`  Network: ${config.id ?? 'unknown'}`);
     console.log(`  Witnesses: ${config.witnesses?.length ?? '?'}`);
   });
 

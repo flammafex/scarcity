@@ -16,11 +16,14 @@ import {
 } from '../../src/circulation-v1/index.js';
 import {
   buildGraphIssuanceHmacAuthorizationV2,
+  buildV5PublicBearerMessage,
   canonicalGraphIssuanceAuthorizationBinding,
   canonicalGraphIssuanceRequestDigest,
   canonicalGraphIssuanceResultDigest,
   DOMAIN_GRAPH_ISSUANCE_HMAC_AUTHORIZATION_V2,
   encodeCanonicalLowerHex,
+  encodeV4RedemptionToken,
+  encodeV5BearerArtifact,
   graphIssuanceHmacAuthorizationTagV2,
   graphIssuanceHmacAuthorizationTranscriptV2,
   parseGraphIssuanceHmacAuthorizationV2,
@@ -31,6 +34,7 @@ import {
   FREEBIRD_GRAPH_ISSUANCE_CANONICAL_DIGEST_VERIFIER,
 } from '../../src/circulation-v1/canonical.js';
 import { validateGraphIssuanceDiscoverySnapshot, validateGraphIssuanceDiscoveryUpdate } from '../../src/circulation-v1/bootstrap.js';
+import { crypto as sdkCrypto, FreebirdClient as SdkFreebirdClient } from '../../src/vendor/freebird-sdk/index.js';
 
 const b64 = (bytes: number[]): string => encodeCanonicalBase64Url(Uint8Array.from(bytes));
 const op = b64(new Array(16).fill(7));
@@ -133,6 +137,85 @@ function main(): void {
   assert.deepEqual(verifyGraphIssuanceHmacAuthorizationV2(vectorSecret, vector.issuance_policy_id, vectorBinding, vectorAuthorization), vectorNonce);
   expectReject(() => verifyGraphIssuanceHmacAuthorizationV2(vectorSecret, vector.issuance_policy_id, vectorBinding, `${vectorAuthorization.slice(0, -1)}${vectorAuthorization.endsWith('A') ? 'B' : 'A'}`));
   assert.equal(encodeCanonicalBase64Url(replayAuthorityProofV1(new Uint8Array(32).fill(1), new Uint8Array(32).fill(2), new Uint8Array(32).fill(3), 'issuer:test')), 'THFSTMyc6htC_fEHvc1kgs5dgayJJuTJixk87B6yzgI');
+
+  // ==========================================================================
+  // Framing/HMAC parity gate: canonical.ts must stay byte-identical to the
+  // vendored @freebird/sdk crypto namespace for the delegable bloc (V4/V5
+  // framing + graph-issuance HMAC). This gate must pass BEFORE and AFTER the
+  // delegation of these functions to the SDK (see AGENTS.md "Freebird
+  // integration surfaces"). The V2 exchange/graph digests are intentionally
+  // NOT covered here — the SDK's public crypto namespace does not export them.
+  // ==========================================================================
+  {
+    const pNonce = new Uint8Array(32).fill(1);
+    const pScope = new Uint8Array(32).fill(2);
+    const pKid = 'kid-1';
+    const pIssuer = 'issuer:test';
+    const pAuth = new Uint8Array(32).fill(3);
+    const pTokenKeyId = new Uint8Array(32).fill(4);
+    const pSig = new Uint8Array(256).fill(5);
+    const pSecret = new TextEncoder().encode('0123456789abcdef0123456789abcdef');
+    const pPolicy = 'bootstrap-v2';
+    const pBinding = new Uint8Array(32).fill(6);
+
+    // V4 redemption-token framing
+    assert.deepEqual(
+      encodeV4RedemptionToken(pNonce, pScope, pKid, pIssuer, pAuth),
+      sdkCrypto.buildRedemptionToken(pNonce, pScope, pKid, pIssuer, pAuth),
+      'V4 encode parity'
+    );
+
+    // V5 public-bearer message + artifact framing
+    assert.deepEqual(
+      buildV5PublicBearerMessage(pNonce, pTokenKeyId, pIssuer),
+      sdkCrypto.buildPublicBearerMessage(pNonce, pTokenKeyId, pIssuer),
+      'V5 message parity'
+    );
+    assert.deepEqual(
+      encodeV5BearerArtifact(pNonce, pTokenKeyId, pIssuer, pSig),
+      sdkCrypto.buildPublicBearerPass(pNonce, pTokenKeyId, pIssuer, pSig),
+      'V5 artifact parity'
+    );
+
+    // Graph-issuance HMAC authorization
+    assert.deepEqual(
+      graphIssuanceHmacAuthorizationTranscriptV2(pNonce, pPolicy, pBinding),
+      sdkCrypto.graphIssuanceHmacAuthorizationTranscriptV2(pNonce, pPolicy, pBinding),
+      'HMAC transcript parity'
+    );
+    assert.deepEqual(
+      graphIssuanceHmacAuthorizationTagV2(pSecret, pNonce, pPolicy, pBinding),
+      sdkCrypto.graphIssuanceHmacAuthorizationTagV2(pSecret, pNonce, pPolicy, pBinding),
+      'HMAC tag parity'
+    );
+    assert.equal(
+      buildGraphIssuanceHmacAuthorizationV2(pSecret, pNonce, pPolicy, pBinding),
+      sdkCrypto.buildGraphIssuanceHmacAuthorizationV2(pSecret, pNonce, pPolicy, pBinding),
+      'HMAC build parity'
+    );
+  }
+
+  // ==========================================================================
+  // Retained-digest parity tripwire: the V2 exchange/graph-issuance digests
+  // stay hand-written in canonical.ts (the SDK's public crypto namespace does
+  // not export them), but the SDK's FreebirdClient exposes three of them as
+  // instance methods. This tripwire converts the latent duplication of the
+  // retained digests into an active check on every vendor sync. The client
+  // constructor is pure (no network), so this runs offline.
+  // ==========================================================================
+  {
+    const client = new SdkFreebirdClient({ issuerUrl: 'https://issuer.invalid' });
+    assert.equal(
+      client.graphIssuanceRequestDigest(request),
+      encodeCanonicalBase64Url(canonicalGraphIssuanceRequestDigest(request)),
+      'graphIssuanceRequestDigest parity'
+    );
+    assert.equal(
+      client.graphIssuanceAuthorizationBindingDigest(request),
+      encodeCanonicalBase64Url(canonicalGraphIssuanceAuthorizationBinding(request)),
+      'graphIssuanceAuthorizationBindingDigest parity'
+    );
+  }
 
   expectReject(() => parseGraphIssuanceRequest({ ...request, version: 3 }));
   assert.throws(() => parseGraphIssuanceRequest({ ...request, version: 1 }), /must be 2/);

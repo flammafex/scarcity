@@ -3,16 +3,23 @@
  *
  * The V2 graph and digest functions below are exact ports of the pinned
  * Freebird source: common/src/exchange_api.rs lines 214-269 and 326-504, and
- * common/src/graph_issuance_api.rs lines 56-199.  The V5 framing is an exact
- * port of public-bearer framing in crypto/src/lib.rs lines 472-578 (the
- * repository's compatibility copy is src/vendor/freebird/voprf.ts, lines
- * 248-336); it is not a new bearer format.  No RSA arithmetic is implemented.
+ * common/src/graph_issuance_api.rs lines 56-199.  The V4/V5 framing and
+ * graph-issuance HMAC are delegated to the vendored `@freebird/sdk` `crypto`
+ * namespace (byte-identical; see the framing/HMAC parity gate in
+ * test/circulation-v1/foundation.test.ts).  No RSA arithmetic is implemented.
+ *
+ * NOTE — this file is part of the `src/circulation-v1/` Freebird V2 subsystem,
+ * a SEPARATE Freebird surface from `src/integrations/freebird.ts` (legacy V4/V5
+ * admission) and `src/vendor/freebird/` (vendored SDK crypto). The V2
+ * exchange/graph-issuance digests, replay-authority proof, and Witness envelope
+ * stay hand-written here — the SDK's public `crypto` namespace does not export
+ * them. See AGENTS.md "Freebird integration surfaces".
  */
 
 import { sha256 } from '@noble/hashes/sha256';
-import { sha384 } from '@noble/hashes/sha512';
 import { hmac } from '@noble/hashes/hmac';
 import { concatBytes } from '@noble/hashes/utils';
+import { crypto as sdkCrypto } from '../vendor/freebird-sdk/index.js';
 import {
   BoundaryValidationError,
   CIRCULATION_CLASS,
@@ -51,11 +58,6 @@ function invalid(message: string): never {
 function assertDigestBytes(value: Uint8Array, field: string): Uint8Array {
   if (value.length !== 32) invalid(`${field}: expected 32 bytes`);
   return value;
-}
-
-function u16be(value: number): Uint8Array {
-  if (!Number.isSafeInteger(value) || value < 1 || value > 0xffff) invalid('length: outside u16 range');
-  return Uint8Array.of((value >>> 8) & 0xff, value & 0xff);
 }
 
 function u32be(value: number): Uint8Array {
@@ -114,6 +116,9 @@ function readUtf8(bytes: Uint8Array, field: string): string {
  * Exact Freebird V4 redemption-token framing port.  Source reference:
  * src/vendor/freebird/voprf.ts lines 169-224.  This helper does not validate
  * V4 policy; generic v4_local remains the authority for that credential.
+ *
+ * Delegated to the vendored @freebird/sdk crypto namespace (byte-identical;
+ * see the framing/HMAC parity gate in test/circulation-v1/foundation.test.ts).
  */
 export function encodeV4RedemptionToken(
   nonce: Uint8Array,
@@ -122,49 +127,29 @@ export function encodeV4RedemptionToken(
   issuerId: string,
   authenticator: Uint8Array,
 ): Uint8Array {
-  if (nonce.length !== 32) invalid('V4 nonce: expected 32 bytes');
-  if (scopeDigest.length !== 32) invalid('V4 scope_digest: expected 32 bytes');
-  if (authenticator.length !== 32) invalid('V4 authenticator: expected 32 bytes');
-  const kidBytes = utf8(kid);
-  const issuerBytes = utf8(issuerId);
-  return concatBytes(
-    Uint8Array.of(0x04),
-    nonce,
-    scopeDigest,
-    Uint8Array.of(kidBytes.length),
-    kidBytes,
-    Uint8Array.of(issuerBytes.length),
-    issuerBytes,
-    authenticator,
-  );
+  return sdkCrypto.buildRedemptionToken(nonce, scopeDigest, kid, issuerId, authenticator);
 }
 
-/** Parse the exact Freebird V4 redemption-token framing. */
+/**
+ * Parse the exact Freebird V4 redemption-token framing.
+ *
+ * Delegated to the vendored @freebird/sdk crypto namespace. The SDK's parser
+ * is lossy on UTF-8 (invalid bytes decode to U+FFFD), so we re-impose the
+ * strict fatal-UTF-8 boundary on the kid/issuer_id fields to preserve this
+ * module's validation posture.
+ */
 export function decodeV4RedemptionToken(bytes: Uint8Array): V4RedemptionTokenEnvelope {
-  if (bytes.length < 101 || bytes.length > 512) invalid('V4 redemption token: invalid total length');
-  if (bytes[0] !== 0x04) invalid('V4 redemption token.version: must be 4');
-  let offset = 1;
-  const nonce = bytes.slice(offset, offset + 32);
-  offset += 32;
-  const scopeDigest = bytes.slice(offset, offset + 32);
-  offset += 32;
-  const kidLength = bytes[offset++];
-  if (kidLength === 0 || offset + kidLength > bytes.length) invalid('V4 redemption token.kid: invalid length');
-  const kid = readUtf8(bytes.slice(offset, offset + kidLength), 'V4 redemption token.kid');
-  offset += kidLength;
-  if (offset >= bytes.length) invalid('V4 redemption token.issuer_id: missing length');
-  const issuerLength = bytes[offset++];
-  if (issuerLength === 0 || offset + issuerLength > bytes.length) invalid('V4 redemption token.issuer_id: invalid length');
-  const issuerId = readUtf8(bytes.slice(offset, offset + issuerLength), 'V4 redemption token.issuer_id');
-  offset += issuerLength;
-  if (bytes.length - offset !== 32) invalid('V4 redemption token.authenticator: expected 32 bytes');
+  const parsed = sdkCrypto.parseRedemptionToken(bytes);
+  // Re-impose fatal UTF-8 (the SDK decodes lossily).
+  readUtf8(new TextEncoder().encode(parsed.kid), 'V4 redemption token.kid');
+  readUtf8(new TextEncoder().encode(parsed.issuerId), 'V4 redemption token.issuer_id');
   return {
     version: 4,
-    nonce,
-    scope_digest: scopeDigest,
-    kid,
-    issuer_id: issuerId,
-    authenticator: bytes.slice(offset),
+    nonce: parsed.nonce,
+    scope_digest: parsed.scopeDigest,
+    kid: parsed.kid,
+    issuer_id: parsed.issuerId,
+    authenticator: parsed.authenticator,
   };
 }
 
@@ -251,29 +236,26 @@ export function canonicalGraphIdV2(graph: { profile_id: string; keysets: readonl
   return domainHex('freebird exchange graph v2\0', concatBytes(...output));
 }
 
-/** Exact Freebird V5 public-bearer message framing before RSABSSA. */
+/**
+ * Exact Freebird V5 public-bearer message framing before RSABSSA.
+ *
+ * Delegated to the vendored @freebird/sdk crypto namespace (byte-identical;
+ * see the framing/HMAC parity gate in test/circulation-v1/foundation.test.ts).
+ */
 export function buildV5PublicBearerMessage(
   nonce: Uint8Array,
   tokenKeyId: Uint8Array,
   issuerId: string,
 ): Uint8Array {
-  if (nonce.length !== 32) invalid('nonce: expected 32 bytes');
-  if (tokenKeyId.length !== 32) invalid('token_key_id: expected 32 bytes');
-  const issuerBytes = utf8(issuerId);
-  return sha384(concatBytes(
-    new TextEncoder().encode('freebird:public-bearer-pass:v5'),
-    Uint8Array.of(0),
-    Uint8Array.of(0x05),
-    nonce,
-    tokenKeyId,
-    Uint8Array.of(issuerBytes.length),
-    issuerBytes,
-  ));
+  return sdkCrypto.buildPublicBearerMessage(nonce, tokenKeyId, issuerId);
 }
 
 /**
  * Exact Freebird V5 public-bearer framing.  The message digest is SHA-384;
  * this helper only frames the resulting RSA-PSS signature.
+ *
+ * Delegated to the vendored @freebird/sdk crypto namespace (byte-identical;
+ * see the framing/HMAC parity gate in test/circulation-v1/foundation.test.ts).
  */
 export function encodeV5BearerArtifact(
   nonce: Uint8Array,
@@ -281,46 +263,27 @@ export function encodeV5BearerArtifact(
   issuerId: string,
   signature: Uint8Array,
 ): Uint8Array {
-  if (nonce.length !== 32) invalid('nonce: expected 32 bytes');
-  if (tokenKeyId.length !== 32) invalid('token_key_id: expected 32 bytes');
-  if (signature.length === 0 || signature.length > 512) invalid('signature: invalid length');
-  const issuerBytes = utf8(issuerId);
-  return concatBytes(
-    Uint8Array.of(0x05),
-    nonce,
-    tokenKeyId,
-    Uint8Array.of(issuerBytes.length),
-    issuerBytes,
-    u16be(signature.length),
-    signature,
-  );
+  return sdkCrypto.buildPublicBearerPass(nonce, tokenKeyId, issuerId, signature);
 }
 
-/** Parse and strictly validate the exact Freebird V5 bearer framing. */
+/**
+ * Parse and strictly validate the exact Freebird V5 bearer framing.
+ *
+ * Delegated to the vendored @freebird/sdk crypto namespace. The SDK's parser
+ * is lossy on UTF-8 (invalid bytes decode to U+FFFD), so we re-impose the
+ * strict fatal-UTF-8 boundary on the issuer_id field to preserve this module's
+ * validation posture.
+ */
 export function decodeV5BearerArtifact(bytes: Uint8Array): V5BearerArtifactEnvelope {
-  if (bytes.length < 69 || bytes.length > 835) invalid('V5 bearer: invalid total length');
-  if (bytes[0] !== 0x05) invalid('V5 bearer.version: must be 5');
-  let offset = 1;
-  const nonce = bytes.slice(offset, offset + 32);
-  offset += 32;
-  const tokenKeyId = bytes.slice(offset, offset + 32);
-  offset += 32;
-  const issuerLength = bytes[offset++];
-  if (issuerLength === 0 || offset + issuerLength > bytes.length) invalid('V5 bearer.issuer_id: invalid length');
-  const issuerId = readUtf8(bytes.slice(offset, offset + issuerLength), 'V5 bearer.issuer_id');
-  offset += issuerLength;
-  if (offset + 2 > bytes.length) invalid('V5 bearer.signature: missing length');
-  const signatureLength = (bytes[offset++] << 8) | bytes[offset++];
-  if (signatureLength === 0 || signatureLength > 512 || offset + signatureLength !== bytes.length) {
-    invalid('V5 bearer.signature: invalid length');
-  }
-  const signature = bytes.slice(offset);
+  const parsed = sdkCrypto.parsePublicBearerPass(bytes);
+  // Re-impose fatal UTF-8 (the SDK decodes lossily).
+  readUtf8(new TextEncoder().encode(parsed.issuerId), 'V5 bearer.issuer_id');
   return parseV5BearerArtifactEnvelope({
     version: 5,
-    nonce: encodeCanonicalBase64Url(nonce),
-    token_key_id: encodeCanonicalLowerHex(tokenKeyId),
-    issuer_id: issuerId,
-    signature: encodeCanonicalBase64Url(signature),
+    nonce: encodeCanonicalBase64Url(parsed.nonce),
+    token_key_id: encodeCanonicalLowerHex(parsed.tokenKeyId),
+    issuer_id: parsed.issuerId,
+    signature: encodeCanonicalBase64Url(parsed.signature),
   });
 }
 
@@ -556,16 +519,18 @@ export function verifyGraphIssuanceRequestDigest(
 export const DOMAIN_GRAPH_ISSUANCE_HMAC_AUTHORIZATION_V2 = new TextEncoder().encode('freebird graph issuance hmac authorization v2\0');
 export const DOMAIN_REPLAY_AUTHORITY_PROBE_V1 = new TextEncoder().encode('freebird v4 replay authority probe v1\0');
 
-/** Build Freebird's exact V2 external HMAC authorization transcript. */
+/**
+ * Build Freebird's exact V2 external HMAC authorization transcript.
+ *
+ * Delegated to the vendored @freebird/sdk crypto namespace (byte-identical;
+ * see the framing/HMAC parity gate in test/circulation-v1/foundation.test.ts).
+ */
 export function graphIssuanceHmacAuthorizationTranscriptV2(
   nonce: Uint8Array,
   policyId: string,
   authorizationBindingDigest: Uint8Array,
 ): Uint8Array {
-  if (nonce.length !== 32) invalid('HMAC nonce: expected 32 bytes');
-  if (authorizationBindingDigest.length !== 32) invalid('authorization binding digest: expected 32 bytes');
-  const policy = ascii(policyId, 'issuance_policy_id');
-  return concatBytes(DOMAIN_GRAPH_ISSUANCE_HMAC_AUTHORIZATION_V2, nonce, u32be(policy.length), policy, authorizationBindingDigest);
+  return sdkCrypto.graphIssuanceHmacAuthorizationTranscriptV2(nonce, policyId, authorizationBindingDigest);
 }
 
 /** Return the raw Freebird V2 HMAC-SHA256 authorization tag. */
@@ -575,8 +540,7 @@ export function graphIssuanceHmacAuthorizationTagV2(
   policyId: string,
   authorizationBindingDigest: Uint8Array,
 ): Uint8Array {
-  if (secret.length === 0) invalid('HMAC secret: empty');
-  return hmac(sha256, secret, graphIssuanceHmacAuthorizationTranscriptV2(nonce, policyId, authorizationBindingDigest));
+  return sdkCrypto.graphIssuanceHmacAuthorizationTagV2(secret, nonce, policyId, authorizationBindingDigest);
 }
 
 /** Construct canonical nonce_raw || tag_raw authorization bytes. */
@@ -586,12 +550,15 @@ export function buildGraphIssuanceHmacAuthorizationV2(
   policyId: string,
   authorizationBindingDigest: Uint8Array,
 ): CanonicalBase64Url {
-  return encodeCanonicalBase64Url(concatBytes(nonce, graphIssuanceHmacAuthorizationTagV2(secret, nonce, policyId, authorizationBindingDigest)));
+  return sdkCrypto.buildGraphIssuanceHmacAuthorizationV2(secret, nonce, policyId, authorizationBindingDigest);
 }
 
 export function parseGraphIssuanceHmacAuthorizationV2(value: unknown): { readonly nonce: Uint8Array; readonly tag: Uint8Array } {
-  const bytes = decodeCanonicalBase64Url(value, 64, 'graph issuance HMAC authorization');
-  return { nonce: bytes.slice(0, 32), tag: bytes.slice(32) };
+  try {
+    return sdkCrypto.parseGraphIssuanceHmacAuthorizationV2(value as string);
+  } catch {
+    invalid('graph issuance HMAC authorization: invalid');
+  }
 }
 
 export function verifyGraphIssuanceHmacAuthorizationV2(
@@ -600,10 +567,11 @@ export function verifyGraphIssuanceHmacAuthorizationV2(
   authorizationBindingDigest: Uint8Array,
   authorization: unknown,
 ): Uint8Array {
-  const parsed = parseGraphIssuanceHmacAuthorizationV2(authorization);
-  const expected = graphIssuanceHmacAuthorizationTagV2(secret, parsed.nonce, policyId, authorizationBindingDigest);
-  if (!bytesEqual(parsed.tag, expected)) invalid('graph issuance authorization: invalid HMAC');
-  return parsed.nonce;
+  try {
+    return sdkCrypto.verifyGraphIssuanceHmacAuthorizationV2(secret, policyId, authorizationBindingDigest, authorization as string);
+  } catch {
+    invalid('graph issuance authorization: invalid HMAC');
+  }
 }
 
 export const hmacAuthorizationTranscriptV2 = graphIssuanceHmacAuthorizationTranscriptV2;
@@ -611,13 +579,6 @@ export const hmacAuthorizationTagV2 = graphIssuanceHmacAuthorizationTagV2;
 export const buildHmacAuthorizationV2 = buildGraphIssuanceHmacAuthorizationV2;
 export const parseHmacAuthorizationV2 = parseGraphIssuanceHmacAuthorizationV2;
 export const verifyHmacAuthorizationV2 = verifyGraphIssuanceHmacAuthorizationV2;
-
-function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {
-  if (left.length !== right.length) return false;
-  let difference = 0;
-  for (let index = 0; index < left.length; index += 1) difference |= left[index] ^ right[index];
-  return difference === 0;
-}
 
 /** Build the exact raw replay-authority HMAC transcript used by Freebird. */
 export function replayAuthorityProofTranscriptV1(

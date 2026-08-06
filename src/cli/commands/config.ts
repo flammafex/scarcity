@@ -72,11 +72,6 @@ export class ConfigCommand extends Command {
     console.log('HyperToken:');
     console.log(`  Relay URL: ${cfg.hypertoken.relayUrl}`);
     console.log('');
-    console.log('Tor:');
-    console.log(`  Enabled:    ${cfg.tor.enabled}`);
-    console.log(`  Proxy Host: ${cfg.tor.proxyHost}`);
-    console.log(`  Proxy Port: ${cfg.tor.proxyPort}`);
-    console.log('');
     console.log(`Config file: ~/.scarcity/config.json`);
     console.log('');
   }

@@ -1,0 +1,30 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { SemanticKernelError } from '../../../src/cash-kernel/semantic-state.js';
+import { capability, evidence, makeKernel, request } from './semantic-support.js';
+
+const fixture = JSON.parse(readFileSync(resolve(process.cwd(), 'test/fixtures/cash-kernel/semantic-v1.json'), 'utf8')) as { cases: Array<{ id: string; expect: unknown }>; authority: Record<string, string> };
+const expect = (ok: boolean, message: string): void => { if (!ok) throw new Error(message); };
+const error = (fn: () => unknown): string | null => { try { fn(); return null; } catch (e) { if (e instanceof SemanticKernelError) return e.category; throw e; } };
+expect(fixture.cases.length === 17, 'semantic fixture case count');
+expect(fixture.authority.approved_snapshot === '40469c8f433f71013ad2928f6fba9b12c4f07380', 'authority snapshot');
+const cases = new Set(fixture.cases.map((c) => c.id));
+for (const id of ['ACCOUNTING-01', 'ACCOUNTING-02', 'ACCOUNTING-03', 'ACCOUNTING-04', 'ISSUANCE-01', 'ISSUANCE-02', 'ISSUANCE-03', 'CLAIM-01', 'CLAIM-02', 'SPEND-01', 'SPEND-02', 'SPEND-03', 'FREEBIRD-01', 'FREEBIRD-02', 'RECOVERY-01', 'RELAY-01', 'DEFERRED-01']) expect(cases.has(id), `missing ${id}`);
+
+const k = makeKernel(); const opening = request('OPEN', { value: 1000, snapshot: 'SNAPSHOT-A' });
+expect(k.open(opening, evidence(opening)) === 'new', 'opening');
+const dividend = request('DIV', { slot: 'SLOT', note: 'NOTE', outputRef: 'NOTE', amount: 120 });
+expect(k.dividend(dividend, capability('DIV'), evidence(dividend, 'POLICY-DIV'), evidence(dividend, 'WITNESS-DIV')) === 'new', 'dividend');
+const civic = request('CIVIC', { purpose: 'CIVIC-PURPOSE', outputRef: 'CIVIC-NOTE', amount: 80 });
+expect(k.civic(civic, capability('CIVIC'), evidence(civic, 'POLICY-CIVIC'), evidence(civic, 'WITNESS-CIVIC')) === 'new', 'civic');
+const prior = request('PRIOR', { note: 'BURN', value: 50, status: 'AVAILABLE', snapshot: 'SNAPSHOT-A' });
+expect(k.restorePrior(prior, evidence(prior)) === 'new', 'prior');
+const burn = request('BURN', { input: 'BURN', amount: 50 });
+expect(k.burn(burn, evidence(burn, 'WITNESS-BURN')) === 'new', 'burn');
+const spend = request('SPEND', { input: 'NOTE', payload: 'PAYLOAD', gross: 120, burn: 7, output: 113, outputRef: 'OUTPUT' });
+expect(k.spend(spend, capability('SPEND'), evidence(spend, 'WITNESS-SPEND')) === 'new', 'spend');
+expect(k.spend(spend, capability('SPEND'), evidence(spend, 'WITNESS-SPEND')) === 'retry', 'spend retry');
+const changedSpend = { ...spend, payload: 'CHANGED' }; expect(error(() => k.spend(changedSpend, capability('SPEND'), evidence(changedSpend, 'WITNESS-SPEND'))) === 'changed_retry_payload_conflict', 'changed retry');
+const relayEvidence = { ...evidence('ENV', 'RESULT'), evidenceReference: 'ENV' }; expect(error(() => k.relay('ENV', relayEvidence)) === null, 'relay');
+expect(error(() => k.rejectDeferred()) === 'deferred_operation', 'deferred');
+console.log('Cash-kernel semantic-v1 consumer: 17 cases exercised');
