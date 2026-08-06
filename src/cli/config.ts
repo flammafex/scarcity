@@ -21,6 +21,10 @@ export interface ScarcityConfig {
   hypertoken: {
     relayUrl: string;
   };
+  proxy: {
+    proxyHost?: string;
+    proxyPort?: number;
+  };
 }
 
 export const DEFAULT_CONFIG: ScarcityConfig = {
@@ -35,7 +39,8 @@ export const DEFAULT_CONFIG: ScarcityConfig = {
   },
   hypertoken: {
     relayUrl: 'ws://localhost:3000'
-  }
+  },
+  proxy: {}
 };
 
 export class ConfigManager {
@@ -80,7 +85,8 @@ export class ConfigManager {
       ...loadedConfig,
       witness: { ...DEFAULT_CONFIG.witness, ...loadedConfig.witness },
       freebird: { ...DEFAULT_CONFIG.freebird, ...loadedConfig.freebird },
-      hypertoken: { ...DEFAULT_CONFIG.hypertoken, ...loadedConfig.hypertoken }
+      hypertoken: { ...DEFAULT_CONFIG.hypertoken, ...loadedConfig.hypertoken },
+      proxy: { ...DEFAULT_CONFIG.proxy, ...loadedConfig.proxy }
     };
 
     // 3. Apply Environment Variable Overrides (Docker/Cloud support)
@@ -105,6 +111,14 @@ export class ConfigManager {
 
     if (process.env.HYPERTOKEN_RELAY_URL) {
       config.hypertoken.relayUrl = process.env.HYPERTOKEN_RELAY_URL;
+    }
+
+    if (process.env.SOCKS_PROXY_HOST) {
+      config.proxy.proxyHost = process.env.SOCKS_PROXY_HOST;
+    }
+
+    if (process.env.SOCKS_PROXY_PORT) {
+      config.proxy.proxyPort = Number(process.env.SOCKS_PROXY_PORT);
     }
 
     return config;
@@ -178,7 +192,8 @@ export class ConfigManager {
   getWitnessConfig() {
     return {
       gatewayUrl: this.config.witness.gatewayUrl,
-      networkId: this.config.witness.networkId
+      networkId: this.config.witness.networkId,
+      proxy: this.config.proxy
     };
   }
 
@@ -188,7 +203,8 @@ export class ConfigManager {
   getFreebirdConfig() {
     return {
       issuerEndpoints: this.config.freebird.issuerEndpoints,
-      verifierUrl: this.config.freebird.verifierUrl
+      verifierUrl: this.config.freebird.verifierUrl,
+      proxy: this.config.proxy
     };
   }
 

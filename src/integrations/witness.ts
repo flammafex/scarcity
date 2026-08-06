@@ -14,6 +14,7 @@ import type {
   SophiaWitnessSignedAttestation,
 } from '../types.js';
 import { WitnessVerifier } from '../vendor/witness-sdk/verify/index.js';
+import { proxyFetch, type ProxyConfig } from '../proxy.js';
 
 export interface WitnessAdapterConfig {
   readonly gatewayUrl?: string; // Single gateway (backward compatibility)
@@ -26,6 +27,12 @@ export interface WitnessAdapterConfig {
    * Intended for local development/testing only.
    */
   readonly allowInsecureFallback?: boolean;
+  /**
+   * Optional SOCKS5 proxy for routing gateway HTTP traffic through a
+   * privacy-preserving transport (e.g. Tor). When set, all gateway fetches go
+   * through the proxy; when omitted, direct connections are used.
+   */
+  readonly proxy?: ProxyConfig;
 }
 
 const CONTRACT_VERSION = 'sophia/v1' as const;
@@ -186,6 +193,7 @@ export class WitnessAdapter implements WitnessClient {
   private readonly powDifficulty: number;
   private readonly quorumThreshold: number;
   private readonly allowInsecureFallback: boolean;
+  private readonly proxy?: ProxyConfig;
   private config: any = null;
   // Local WASM verifier pinned to the fetched network config (Fix: SDK adoption).
   // null when the config is unavailable or the WASM module fails to load —
@@ -216,6 +224,7 @@ export class WitnessAdapter implements WitnessClient {
       !!process.env &&
       process.env.SCARCITY_ALLOW_INSECURE_FALLBACK === 'true';
     this.allowInsecureFallback = config.allowInsecureFallback ?? envFallback;
+    this.proxy = config.proxy;
 
     // Default quorum: 2-of-3 (or majority if different number of gateways)
     this.quorumThreshold = config.quorumThreshold ?? Math.ceil(this.gatewayUrls.length / 2);
@@ -224,7 +233,8 @@ export class WitnessAdapter implements WitnessClient {
   }
 
   private async fetch(url: string, options: RequestInit = {}): Promise<Response> {
-    return fetch(url, options);
+    const pf = proxyFetch(this.proxy);
+    return pf ? pf(url, options) : fetch(url, options);
   }
 
   private warningOnce(key: string, message: string): void {

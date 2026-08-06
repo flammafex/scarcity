@@ -72,6 +72,10 @@ export class ConfigCommand extends Command {
     console.log('HyperToken:');
     console.log(`  Relay URL: ${cfg.hypertoken.relayUrl}`);
     console.log('');
+    console.log('Proxy (SOCKS5):');
+    console.log(`  Host: ${cfg.proxy.proxyHost ?? '(none)'}`);
+    console.log(`  Port: ${cfg.proxy.proxyPort ?? '(none)'}`);
+    console.log('');
     console.log(`Config file: ~/.scarcity/config.json`);
     console.log('');
   }
@@ -166,9 +170,8 @@ CONFIGURATION KEYS:
   freebird.issuerUrl         Freebird issuer URL
   freebird.verifierUrl       Freebird verifier URL
   hypertoken.relayUrl        HyperToken relay URL
-  tor.enabled                Enable Tor (true/false)
-  tor.proxyHost              Tor SOCKS5 proxy host
-  tor.proxyPort              Tor SOCKS5 proxy port
+  proxy.proxyHost            SOCKS5 proxy host (e.g. 127.0.0.1 for Tor)
+  proxy.proxyPort            SOCKS5 proxy port (e.g. 9050 for Tor)
 
 OPTIONS:
   --confirm                  Confirm destructive operation

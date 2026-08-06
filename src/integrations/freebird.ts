@@ -23,6 +23,7 @@
 import { Crypto } from '../crypto.js';
 import type { FreebirdClient } from '../types.js';
 import { FreebirdClient as SdkFreebirdClient } from '../vendor/freebird-sdk/index.js';
+import { proxyFetch, type ProxyConfig } from '../proxy.js';
 
 /**
  * Decodes a base64url string into bytes.
@@ -59,12 +60,19 @@ export interface FreebirdAdapterConfig {
    * Intended for local development/testing only.
    */
   readonly allowInsecureFallback?: boolean;
+  /**
+   * Optional SOCKS5 proxy for routing issuer/verifier HTTP traffic through a
+   * privacy-preserving transport (e.g. Tor). When set, all SDK fetches go
+   * through the proxy; when omitted, direct connections are used.
+   */
+  readonly proxy?: ProxyConfig;
 }
 
 export class FreebirdAdapter implements FreebirdClient {
   private readonly issuerEndpoints: string[];
   private readonly verifierUrl: string;
   private readonly allowInsecureFallback: boolean;
+  private readonly proxy?: ProxyConfig;
   // One SDK client per issuer endpoint (multi-issuer redundancy).
   private readonly clients = new Map<string, SdkFreebirdClient>();
   private noIssuersWarningLogged = false;
@@ -77,6 +85,7 @@ export class FreebirdAdapter implements FreebirdClient {
 
     this.issuerEndpoints = config.issuerEndpoints;
     this.verifierUrl = config.verifierUrl;
+    this.proxy = config.proxy;
     const envFallback =
       typeof process !== 'undefined' &&
       !!process.env &&
@@ -89,7 +98,8 @@ export class FreebirdAdapter implements FreebirdClient {
   }
 
   private async fetch(url: string, options: RequestInit = {}): Promise<Response> {
-    return fetch(url, options);
+    const pf = proxyFetch(this.proxy);
+    return pf ? pf(url, options) : fetch(url, options);
   }
 
   private warningOnce(key: string, message: string): void {
@@ -139,6 +149,7 @@ export class FreebirdAdapter implements FreebirdClient {
       verifierUrl?: string;
       verifierId?: string;
       audience?: string;
+      fetch?: typeof fetch;
     } = { issuerUrl: url };
 
     if (this.verifierUrl) {
@@ -147,6 +158,9 @@ export class FreebirdAdapter implements FreebirdClient {
       config.verifierId = 'scarcity-dev-verifier';
       config.audience = 'scarcity';
     }
+
+    const pf = proxyFetch(this.proxy);
+    if (pf) config.fetch = pf;
 
     return new SdkFreebirdClient(config);
   }
