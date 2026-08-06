@@ -2,7 +2,7 @@
 
 **Scarcity** is a Chaumian e-cash protocol. It provides private, bearer-instrument digital tokens with double-spend prevention — without blockchains, mining, or global ledgers.
 
-Scarcity owns token IDs, amounts, secrets, ownership proofs, split/merge arithmetic, and lazy demurrage state directly. Freebird is used only as privacy-preserving admission/authorization infrastructure; Witness federations provide ordering and auditability, and gossip networks propagate spent-token nullifiers for fast double-spend detection.
+Scarcity owns token IDs, amounts, secrets, ownership proofs, split/merge arithmetic, and lazy demurrage state directly. In the legacy core protocol, Freebird is used only as privacy-preserving admission/authorization infrastructure; the `circulation-v1` subsystem additionally uses Freebird as the V2 public-bearer exchange and graph-issuance mechanism. Witness federations provide ordering and auditability, and gossip networks propagate spent-token nullifiers for fast double-spend detection.
 
 ## Quick Start (Docker)
 
@@ -35,13 +35,13 @@ Scarcity separates three orthogonal concerns:
 | **Time** | Witness (threshold sigs) | Ordering — timestamps transfers, anchors to external systems |
 | **State** | HyperToken (gossip) | Propagation — broadcasts nullifiers for double-spend detection |
 
-The software provides cryptographic guarantees (privacy, unlinkability, double-spend detection). Scarcity enforces token arithmetic and demurrage locally and in transfer envelopes; Freebird only gates access to Scarcity infrastructure.
+The software provides cryptographic guarantees (privacy, unlinkability, double-spend detection). Scarcity enforces token arithmetic and demurrage locally and in transfer envelopes; in the legacy core protocol Freebird only gates access to Scarcity infrastructure, while the `circulation-v1` subsystem uses Freebird as the V2 public-bearer exchange and graph-issuance mechanism.
 
 ## Architecture
 
 | Component | Purpose | Link |
 |-----------|---------|------|
-| **Freebird** | Anonymous authorization via V4 private tokens | [git.carpocratian.org/sibyl/freebird](https://git.carpocratian.org/sibyl/freebird) |
+| **Freebird** | Anonymous authorization via V4 private tokens (legacy core); V2 public-bearer exchange + graph-issuance in `circulation-v1` | [git.carpocratian.org/sibyl/freebird](https://git.carpocratian.org/sibyl/freebird) |
 | **Witness** | Threshold timestamping (Ed25519/BLS12-381) with external anchoring | [git.carpocratian.org/sibyl/witness](https://git.carpocratian.org/sibyl/witness) |
 | **HyperToken** | P2P networking with WebSocket/WebRTC | [git.carpocratian.org/sibyl/hypertoken](https://git.carpocratian.org/sibyl/hypertoken) |
 
