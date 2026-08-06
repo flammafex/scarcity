@@ -406,7 +406,6 @@ By rejecting the assumption that global consensus is necessary, Scarcity achieve
 ## Further Reading
 
 - **Rationale**: See [README.md](README.md) for protocol overview
-- **Architecture**: [Technical documentation](docs/) for implementation details
 - **Comparison**: [Comparison to Alternatives](README.md#comparison-to-alternatives)
 
 ---
