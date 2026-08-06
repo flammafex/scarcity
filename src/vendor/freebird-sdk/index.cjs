@@ -726,7 +726,7 @@ async function init(state) {
     return;
   if (!state.metadata) {
     const url = `${state.config.issuerUrl}/.well-known/issuer`;
-    const res = await fetch(url);
+    const res = await (state.config.fetch ?? fetch)(url);
     if (!res.ok) {
       throw new DiscoveryError("Failed to fetch issuer metadata");
     }
@@ -735,7 +735,7 @@ async function init(state) {
   if (!state.verifierMetadata) {
     if (state.config.verifierUrl) {
       const url = `${state.config.verifierUrl}/.well-known/verifier`;
-      const res = await fetch(url);
+      const res = await (state.config.fetch ?? fetch)(url);
       if (!res.ok) {
         throw new DiscoveryError("Failed to fetch verifier metadata");
       }
@@ -770,7 +770,7 @@ function isKeyDiscoveryFresh(state) {
 }
 async function fetchKeyDiscoveryMetadata(state) {
   const url = `${state.config.issuerUrl}/.well-known/keys`;
-  const res = await fetch(url);
+  const res = await (state.config.fetch ?? fetch)(url);
   if (!res.ok) {
     throw new DiscoveryError("Failed to fetch issuer key metadata");
   }
@@ -1207,7 +1207,7 @@ async function exchange(state, request, statusCapability, selectTransition, dige
   validateStatusCapability(statusCapability);
   const selection = await validateExchangeRequestSelection(request, selectTransition);
   digest(request);
-  const response = await fetch(`${state.config.issuerUrl}/v2/public/exchange`, {
+  const response = await (state.config.fetch ?? fetch)(`${state.config.issuerUrl}/v2/public/exchange`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -1230,7 +1230,7 @@ async function getExchangeStatus(state, publicOperationIdOrRequest, statusCapabi
   const selection = await validateExchangeRequestSelection(submittedRequest, selectTransition);
   digest(submittedRequest);
   const url = `${state.config.issuerUrl}/v2/public/exchange/status?public_operation_id=${encodeURIComponent(publicOperationId)}`;
-  const response = await fetch(url, {
+  const response = await (state.config.fetch ?? fetch)(url, {
     method: "GET",
     headers: { "exchange-status-capability": statusCapability }
   });
@@ -1571,7 +1571,7 @@ async function issueGraphBlindSignature(state, request, statusCapability, select
     selectPolicy
   );
   digest(request);
-  const response = await fetch(`${state.config.issuerUrl}/v1/public/graph/issue`, {
+  const response = await (state.config.fetch ?? fetch)(`${state.config.issuerUrl}/v1/public/graph/issue`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -1635,7 +1635,7 @@ async function createGraphIssuanceRecoveryContext(request, statusCapability, exp
 }
 async function retryGraphBlindSignature(state, context, digest) {
   const recovery = graphIssuanceRecovery(context, digest);
-  const response = await fetch(`${state.config.issuerUrl}/v1/public/graph/issue`, {
+  const response = await (state.config.fetch ?? fetch)(`${state.config.issuerUrl}/v1/public/graph/issue`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -1653,7 +1653,7 @@ async function retryGraphBlindSignature(state, context, digest) {
 async function getGraphIssuanceStatus(state, context, digest) {
   const recovery = graphIssuanceRecovery(context, digest);
   const url = `${state.config.issuerUrl}/v1/public/graph/issue/status?public_operation_id=${encodeURIComponent(recovery.request.public_operation_id)}`;
-  const response = await fetch(url, {
+  const response = await (state.config.fetch ?? fetch)(url, {
     method: "GET",
     headers: { "graph-issuance-status-capability": recovery.statusCapability }
   });
@@ -1948,7 +1948,7 @@ async function issueToken(state, sybilProof, initialize, refreshKeyDiscovery) {
       blinded_element_b64,
       sybil_proof: effectiveProof
     };
-    const res = await fetch(`${state.config.issuerUrl}/v1/oprf/issue`, {
+    const res = await (state.config.fetch ?? fetch)(`${state.config.issuerUrl}/v1/oprf/issue`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(reqBody)
@@ -2012,7 +2012,7 @@ async function issuePublicBlindSignature(state, blindedMsg, sybilProof, tokenKey
         powDifficulty
       );
     }
-    const res = await fetch(`${state.config.issuerUrl}/v1/public/issue`, {
+    const res = await (state.config.fetch ?? fetch)(`${state.config.issuerUrl}/v1/public/issue`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ blinded_msg_b64, token_key_id: requestedKeyId, sybil_proof: effectiveProof })
@@ -2068,7 +2068,7 @@ async function issueTokens(state, msgs, opts, initialize, refreshKeyDiscovery) {
       };
       if (opts.ctxB64 !== void 0)
         reqBody.ctx_b64 = opts.ctxB64;
-      const res = await fetch(`${state.config.issuerUrl}/v1/oprf/issue/batch`, {
+      const res = await (state.config.fetch ?? fetch)(`${state.config.issuerUrl}/v1/oprf/issue/batch`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(reqBody)
@@ -2168,7 +2168,7 @@ async function issuePublicTokens(state, msgs, opts, getDiscovery, refreshKeyDisc
         token_key_id: requestedKeyId,
         sybil_proof: effectiveProof
       };
-      const res = await fetch(`${state.config.issuerUrl}/v1/public/issue/batch`, {
+      const res = await (state.config.fetch ?? fetch)(`${state.config.issuerUrl}/v1/public/issue/batch`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(reqBody)
@@ -2373,7 +2373,7 @@ function throwForStatus(res) {
 }
 async function verifyToken(state, token) {
   const verifierUrl = requireVerifierUrl(state);
-  const res = await fetch(`${verifierUrl}/v1/verify`, {
+  const res = await (state.config.fetch ?? fetch)(`${verifierUrl}/v1/verify`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ token_b64: token.tokenValue })
@@ -2384,7 +2384,7 @@ async function verifyToken(state, token) {
 }
 async function checkToken(state, token) {
   const verifierUrl = requireVerifierUrl(state);
-  const res = await fetch(`${verifierUrl}/v1/check`, {
+  const res = await (state.config.fetch ?? fetch)(`${verifierUrl}/v1/check`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ token_b64: token.tokenValue })
@@ -2398,7 +2398,7 @@ async function verifyBatch(state, tokens) {
   const body = {
     tokens: tokens.map((token) => ({ token_b64: token.tokenValue }))
   };
-  const res = await fetch(`${verifierUrl}/v1/verify/batch`, {
+  const res = await (state.config.fetch ?? fetch)(`${verifierUrl}/v1/verify/batch`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body)
