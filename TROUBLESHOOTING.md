@@ -491,43 +491,6 @@ npm run web
 
 ---
 
-### ❌ "Failed to connect to Tor" errors
-
-**Problem:** Tor proxy not running or not configured.
-
-**Solutions:**
-
-**Verify Tor is optional:**
-```bash
-# Tor is ONLY needed if you explicitly enable it in config
-# Scarcity works fine without Tor
-```
-
-**To enable Tor (optional):**
-```bash
-# Linux/macOS:
-# Install Tor
-sudo apt-get install tor  # Ubuntu/Debian
-brew install tor          # macOS
-
-# Start Tor
-tor
-
-# Windows:
-# Download Tor Browser Bundle from torproject.org
-# Or use Tor Expert Bundle
-```
-
-**Configure Scarcity to use Tor:**
-```json
-// ~/.scarcity/config.json
-{
-  "torProxy": "socks5://127.0.0.1:9050"
-}
-```
-
----
-
 ## Network and Port Issues
 
 ### ❌ "EADDRINUSE: address already in use" errors

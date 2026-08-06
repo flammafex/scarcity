@@ -727,7 +727,7 @@ These require more complex solutions and are documented for future development:
 
 #### 1. Traffic Analysis & Metadata Leakage
 
-**Vulnerability**: While Tor hides IPs and Freebird V4 hides admission identity, transaction graph analysis could correlate transfers.
+**Vulnerability**: While Freebird V4 hides admission identity, transaction graph analysis could correlate transfers.
 
 **Future Solutions**:
 - Fixed Denominations: Force all tokens to standard values (1, 10, 100) like Monero

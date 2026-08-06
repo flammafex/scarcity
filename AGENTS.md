@@ -6,7 +6,7 @@ Guidance for Codex / AI agents working in this repository. Read this before maki
 
 Scarcity is a Chaumian e-cash protocol: privacy-preserving bearer tokens with double-spend
 prevention via nullifier gossip + threshold-signed timestamps. No blockchain, no mining.
-Research prototype (v0.4.0). Node.js 20+, TypeScript ESM.
+Research prototype (v0.5.0). Node.js 20+, TypeScript ESM.
 
 External services (Freebird, Witness, HyperToken) are **not in this repo** — they run as
 separate containers/processes. The code here is the Scarcity core + CLI + web wallet + explorer.
@@ -22,7 +22,6 @@ src/
   crypto.ts             SHA-256, nullifiers, constant-time compare, PoW
   ownership.ts          OwnershipProof (Schnorr-style, binds secret→nullifier)
   bridge.ts             FederationBridge (cross-federation transfers)
-  tor.ts                TorProxy (SOCKS5, .onion routing)
   constants.ts          DEFAULT_TOKEN_VALIDITY_MS (~576 days demurrage window)
   types.ts              Core interfaces + adapter contracts
   integrations/
@@ -38,7 +37,6 @@ test/
   integration/          10 numbered suites (01-basic … 10-live-services)
   helpers/test-utils.ts Custom TestRunner + TestConfig
   run-integration-tests.ts  Orchestrates all suites
-examples/               Standalone example scripts
 docker-compose.yaml     Full stack incl. external services
 .forgejo/workflows/    CI
 ```
@@ -131,8 +129,7 @@ currently fails. Do not rely on linting. If you add eslint, also add config + de
   and note the result.
 - Don't commit `dist/` (gitignored) or `node_modules/`.
 - Don't update version numbers in `package.json`, `src/cli/index.ts`, or `src/web/server.ts`
-  as part of an unrelated change — and note these three are currently inconsistent
-  (0.4.0 / 0.2.0 / 0.2.0); ask before reconciling.
+  as part of an unrelated change — keep all three in sync (currently 0.5.0).
 - Commit messages: short imperative subject, match the style in `git log --oneline`.
 
 ## Constraints — do NOT touch without asking
